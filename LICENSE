@@ -1,0 +1,123 @@
+WayBack — лицензия на исходный код
+Copyright (c) 2026 demigreeen (wayback.pro). Все права защищены.
+
+Исходный код открыт для чтения, но не передан в общественное достояние
+и не является свободным программным обеспечением. Права на него
+принадлежат правообладателю, указанному выше.
+
+
+ЧТО РАЗРЕШЕНО БЕЗ ОТДЕЛЬНОГО СОГЛАСИЯ
+
+  1. Читать и изучать код, в том числе в учебных и исследовательских целях.
+  2. Копировать репозиторий и запускать сайт на своём компьютере
+     для личного использования.
+  3. Создавать форк на GitHub и присылать изменения в исходный
+     репозиторий (pull request).
+  4. Цитировать фрагменты кода со ссылкой на источник.
+
+
+ЧТО ТРЕБУЕТ ПИСЬМЕННОГО РАЗРЕШЕНИЯ ПРАВООБЛАДАТЕЛЯ
+
+  1. Публичное размещение этого сайта или производного от него
+     на любом домене, доступном третьим лицам.
+  2. Любое коммерческое использование, включая продажу доступа,
+     подписки, рекламу и встраивание в платные продукты.
+  3. Использование названия WayBack, домена wayback.pro и оформления
+     сайта для собственного сервиса.
+  4. Удаление или замена водяного знака в создаваемых видеофайлах.
+
+За разрешением: через issue в репозитории github.com/demigreeen/wayback.
+
+
+ВИДЕО, СОЗДАННЫЕ ПОЛЬЗОВАТЕЛЯМИ
+
+Права на видео, созданное пользователем из своих данных, принадлежат
+самому пользователю. Правообладатель WayBack не претендует на них
+и не получает к ним доступа: файлы не покидают браузер.
+
+
+ОТСУТСТВИЕ ГАРАНТИЙ
+
+Программа предоставляется «как есть», без каких-либо гарантий, явных
+или подразумеваемых, включая гарантии пригодности для конкретных целей.
+Правообладатель не несёт ответственности за любой ущерб, возникший
+в связи с использованием программы.
+
+
+СТОРОННИЕ КОМПОНЕНТЫ
+
+Условия выше не распространяются на перечисленные ниже компоненты —
+они остаются под собственными лицензиями своих авторов.
+
+  Leaflet 1.9.4 — BSD 2-Clause
+    (c) 2010-2023 Vladimir Agafonkin, (c) 2010-2011 CloudMade
+    site/js/vendor/leaflet.js, site/css/vendor/leaflet.css
+    https://github.com/Leaflet/Leaflet/blob/main/LICENSE
+
+  fflate — MIT
+    (c) 2020 Arjun Barrett
+    site/js/vendor/fflate.min.js
+    https://github.com/101arrowz/fflate/blob/master/LICENSE
+
+  mp4-muxer — MIT
+    (c) 2023 Vanilagy
+    site/js/vendor/mp4-muxer.js
+    https://github.com/Vanilagy/mp4-muxer/blob/main/LICENSE
+
+
+ДАННЫЕ
+
+  Картографические данные — (c) участники OpenStreetMap, ODbL 1.0
+    https://www.openstreetmap.org/copyright
+    Кадр видео рисуется собственным движком проекта из векторных тайлов
+    и является Produced Work в терминах ODbL.
+
+  Названия населённых пунктов — GeoNames, CC BY 4.0
+    https://www.geonames.org/
+    site/js/cities.js — производная выборка из набора cities15000.
+
+Оба источника указаны в подвале сайта и в кадре создаваемого видео.
+
+
+================================================================
+ENGLISH TRANSLATION (for reference; the Russian text prevails)
+================================================================
+
+WayBack — Source Code License
+Copyright (c) 2026 demigreeen (wayback.pro). All rights reserved.
+
+The source code is published for reading. It is not public domain
+and not free software. All rights remain with the copyright holder.
+
+PERMITTED WITHOUT PRIOR CONSENT
+  1. Reading and studying the code, including for education and research.
+  2. Copying the repository and running the site locally for personal use.
+  3. Forking on GitHub and submitting pull requests upstream.
+  4. Quoting excerpts with attribution.
+
+REQUIRES WRITTEN PERMISSION FROM THE COPYRIGHT HOLDER
+  1. Publicly hosting this site, or a derivative of it, on any domain
+     accessible to third parties.
+  2. Any commercial use, including paid access, subscriptions,
+     advertising, or bundling into paid products.
+  3. Use of the WayBack name, the wayback.pro domain, or the site design
+     for your own service.
+  4. Removing or replacing the watermark in generated video files.
+
+Requests: open an issue at github.com/demigreeen/wayback.
+
+USER-GENERATED VIDEO
+Videos a user creates from their own data belong to that user. The WayBack
+copyright holder claims no rights to them and never receives them:
+the files never leave the browser.
+
+NO WARRANTY
+The software is provided "as is", without warranty of any kind, express
+or implied, including but not limited to fitness for a particular purpose.
+The copyright holder shall not be liable for any damages arising from
+the use of the software.
+
+THIRD-PARTY COMPONENTS AND DATA
+The terms above do not apply to the bundled third-party components or to
+the map and place-name data; those remain under their own licenses, listed
+in the Russian sections "СТОРОННИЕ КОМПОНЕНТЫ" and "ДАННЫЕ" above.
