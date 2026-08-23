@@ -1,0 +1,280 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>WayBack — вся ваша спортивная история в одном видео</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Загрузите архив экспорта из Strava, Garmin или Huawei — и получите анимированное видео всей истории ваших тренировок на карте. Всё работает в браузере: файлы не покидают ваш компьютер.">
+<meta property="og:title" content="WayBack — вся ваша спортивная история в одном видео">
+<meta property="og:description" content="Годы тренировок за одну минуту: тренировки появляются на карте в хронологическом порядке, камера летит следом. Скачайте результат видеофайлом.">
+<meta property="og:type" content="website">
+<link rel="icon" href='data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><circle cx="16" cy="16" r="13" fill="%230b0e14"/><path d="M8 20 Q12 10 16 16 T25 12" stroke="%233b82f6" stroke-width="3" fill="none" stroke-linecap="round"/><circle cx="25" cy="12" r="3" fill="%2360a5fa"/></svg>'>
+<link rel="stylesheet" href="css/vendor/leaflet.css">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+
+<header class="site-header">
+  <div class="wrap">
+    <a class="logo" href="#">
+      <svg viewBox="0 0 32 32" width="28" height="28" aria-hidden="true">
+        <circle cx="16" cy="16" r="13" fill="#0b0e14"/>
+        <path d="M8 20 Q12 10 16 16 T25 12" stroke="#3b82f6" stroke-width="3" fill="none" stroke-linecap="round"/>
+        <circle cx="25" cy="12" r="3" fill="#60a5fa"/>
+      </svg>
+      Way<span>Back</span>
+    </a>
+    <nav>
+      <a href="#how">Как это работает</a>
+      <a href="#formats">Форматы</a>
+      <a href="#privacy">Приватность</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <section class="hero">
+    <div class="wrap">
+      <h1>Вся ваша спортивная история —<br><em>в одном видео</em></h1>
+      <p class="sub">Годы пробежек и тренировок за одну минуту. Тренировки вспыхивают на карте
+      в хронологическом порядке, камера летит следом, а в финале — вся картина целиком.
+      Результат можно скачать видеофайлом и поделиться им.</p>
+
+      <div id="dropzone" class="dropzone" tabindex="0" role="button"
+           aria-label="Загрузить архив экспорта">
+        <svg viewBox="0 0 48 48" width="44" height="44" aria-hidden="true">
+          <path d="M24 32V14m0 0l-8 8m8-8l8 8" stroke="#3b82f6" stroke-width="3.5"
+                fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M10 34v4a4 4 0 004 4h20a4 4 0 004-4v-4" stroke="#94a3b8"
+                stroke-width="3" fill="none" stroke-linecap="round"/>
+        </svg>
+        <div class="dz-title">Перетащите сюда архив экспорта</div>
+        <div class="dz-sub">ZIP-архив выгрузки из Strava, Garmin или Huawei —
+          целиком, как пришёл на почту</div>
+        <button class="btn primary" id="pickBtn" type="button">Выбрать файлы</button>
+        <input type="file" id="fileInput" multiple
+               accept=".zip,.gpx,.fit,.tcx,.gz,.csv,.json" hidden>
+      </div>
+
+      <div class="hero-notes">
+        <span class="lock">🔒 Файлы не загружаются на сервер — всё обрабатывается
+          в вашем браузере</span>
+        <button class="linklike" id="demoBtn" type="button">Посмотреть демо на тестовых данных →</button>
+      </div>
+    </div>
+  </section>
+
+  <section id="how" class="section">
+    <div class="wrap">
+      <h2>Как это работает</h2>
+      <div class="cards">
+        <div class="card">
+          <div class="num">1</div>
+          <h3>Экспортируйте архив</h3>
+          <p>Запросите выгрузку данных в своём сервисе — точные шаги для
+          Strava, Garmin и Huawei описаны ниже, в разделе «Форматы».
+          Архив придёт письмом на почту.</p>
+        </div>
+        <div class="card">
+          <div class="num">2</div>
+          <h3>Перетащите его сюда</h3>
+          <p>WayBack сам разберёт архив: найдёт тренировки в GPX, FIT и TCX,
+          распакует вложенные ZIP и GZ, отсеет дубликаты и выстроит
+          хронологию.</p>
+        </div>
+        <div class="card">
+          <div class="num">3</div>
+          <h3>Смотрите и скачивайте</h3>
+          <p>Анимация проигрывается сразу в браузере. Одна кнопка — и рендер
+          видео в 1080p, которым можно поделиться в соцсетях.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="formats" class="section alt">
+    <div class="wrap">
+      <h2>Какие архивы поддерживаются</h2>
+      <div class="formats-grid">
+        <div class="fmt"><b>Strava</b><span>bulk export: activities с .gpx.gz / .fit.gz / .tcx.gz + activities.csv</span></div>
+        <div class="fmt"><b>Garmin</b><span>GDPR-архив с вложенными ZIP и FIT-файлами</span></div>
+        <div class="fmt"><b>Huawei</b><span>выгрузка Privacy Center: motion path detail data.json</span></div>
+      </div>
+      <details class="howto">
+        <summary>Как запросить архив в Strava</summary>
+        <p class="howto-where">Только на компьютере — в мобильном приложении
+          выгрузки нет</p>
+        <p class="howto-path">Настройки → Мой аккаунт → Скачивание своего
+          аккаунта → <b>Запросить скачивание</b></p>
+        <p class="howto-wait">Ожидание: от часа до пары дней</p>
+        <p>Придёт ZIP с тренировками в GPX, FIT и TCX. Загружайте его целиком,
+          как пришёл — распаковывать не нужно.</p>
+      </details>
+
+      <details class="howto">
+        <summary>Как запросить архив в Garmin</summary>
+        <p class="howto-where">Только на компьютере</p>
+        <p class="howto-path">Открыть <b>garmin.com/account/datamanagement</b> →
+          войти в аккаунт → Export Your Data → <b>Request Data Export</b></p>
+        <p class="howto-wait">Ожидание: от пары часов до пары дней</p>
+        <p>Придёт ZIP со всеми данными аккаунта. Тренировки лежат FIT-файлами
+          во вложенных архивах внутри папки <b>DI_CONNECT</b> — доставать их
+          не нужно, WayBack найдёт сам.</p>
+      </details>
+
+      <details class="howto">
+        <summary>Как запросить архив в Huawei Health</summary>
+        <p class="howto-where">Только в мобильном приложении</p>
+        <p class="howto-path">Я → нажать на своё имя → Конфиденциальность →
+          Запрос данных → подтверждение личности → в разделе Huawei Mobile
+          Services отметить <b>Здоровье</b> → размер файла <b>5G</b> → ОК</p>
+        <p class="howto-wait">Ожидание: от пары минут до пары часов</p>
+        <p>Отмечайте только «Здоровье»: «Выбрать все» раздует архив почтой,
+          темами и покупками. Размер <b>5G</b> нужен, чтобы архив пришёл одним
+          файлом — разрезанный на части WayBack не соберёт.</p>
+      </details>
+
+      <p class="howto-note">Во всех трёх случаях ссылка приходит письмом на
+        почту аккаунта. Проверьте папку «Спам» — такие письма часто попадают
+        туда.</p>
+    </div>
+  </section>
+
+  <section id="privacy" class="section">
+    <div class="wrap narrow">
+      <h2>Приватность</h2>
+      <p>Места ваших тренировок — это координаты дома, работы и привычек.
+      Поэтому WayBack устроен так, что <b>геоданные физически не покидают ваш
+      компьютер</b>: распаковка архива, разбор треков и рендер видео выполняются
+      целиком в браузере. У сайта нет сервера, на который можно было бы
+      что-то отправить.</p>
+      <p>Вторая мера — уже в самой анимации. Тренировка обычно начинается
+      у дома, поэтому <b>на карте показывается не место старта, а точка
+      немного дальше по маршруту</b>, и у каждой тренировки смещение своё.
+      На общую картину это не влияет, а вот адрес из кадра убирает.
+      Тренировки, для которых такого смещения не хватает, в анимацию
+      не попадают.</p>
+    </div>
+  </section>
+</main>
+
+<footer class="site-footer">
+  <div class="wrap">
+    <span>Карта: <span id="mapCredit"></span> · Города: GeoNames (CC BY)</span>
+  </div>
+</footer>
+
+<!-- ─── прогресс разбора ─── -->
+<div id="parseOverlay" class="modal-overlay">
+  <div class="modal">
+    <div class="modal-title">Разбираем архив…</div>
+    <div class="bar"><div id="parseBarFill"></div></div>
+    <div id="parseStatus" class="modal-sub">Читаем файлы...</div>
+  </div>
+</div>
+
+<!-- ─── сводка после разбора ─── -->
+<div id="summaryOverlay" class="modal-overlay">
+  <div class="modal">
+    <div class="modal-title">Найдено активностей: <span id="sumCount">0</span></div>
+    <div class="modal-sub" id="sumMeta"></div>
+    <div id="typeFilters" class="type-filters"></div>
+    <button class="btn primary big" id="startBtn" type="button">Смотреть анимацию</button>
+    <button class="linklike" id="cancelSummary" type="button">Отмена</button>
+  </div>
+</div>
+
+<!-- ─── ПЛЕЕР (тёмный полноэкранный) ─── -->
+<div id="player" hidden>
+  <div id="map"></div>
+  <canvas id="liveCanvas"></canvas>
+
+  <div id="mapLoading">
+    <div class="ml-card">
+      <div class="ml-dot"></div>
+      <div class="ml-text">Готовим карту</div>
+      <div class="ml-bar"><div id="mapLoadingBar"></div></div>
+    </div>
+  </div>
+
+  <div id="hud">
+    <h1>WayBack</h1>
+    <div class="current-date" id="currentDate">—</div>
+    <div class="current-name" id="currentName"></div>
+    <div class="stats">
+      <div class="stat"><div class="v"><span id="shownCount">0</span> / <span id="totalCount">0</span></div><div class="l">активностей</div></div>
+      <div class="stat"><div class="v" id="cumKm">0</div><div class="l">км суммарно</div></div>
+    </div>
+  </div>
+
+  <button id="backBtn" class="secondary" type="button">← на главную</button>
+
+  <div id="controls">
+    <button id="playBtn" title="Играть / Пауза" type="button">▶</button>
+    <button class="secondary" id="resetBtn" title="Сначала" type="button">⟲</button>
+    <input type="range" id="slider" min="0" max="0" value="0" step="1">
+    <select id="orient" title="Формат кадра">
+      <option value="portrait" selected>Вертикально 9:16</option>
+      <option value="landscape">Горизонтально 16:9</option>
+    </select>
+    <select id="speed" title="Скорость">
+      <option value="1000">Очень медленно</option>
+      <option value="333">Медленно</option>
+      <option value="200" selected>Обычно</option>
+      <option value="100">Быстро</option>
+      <option value="50">Очень быстро</option>
+    </select>
+    <label class="follow" title="Камера следует за точками (кинорежим)">
+      <input type="checkbox" id="followCam" checked> камера
+    </label>
+    <button class="secondary" id="videoBtn" title="Записать и скачать видеофайл" type="button">⬇ Скачать видео</button>
+    <div id="counter"></div>
+  </div>
+
+  <div id="exportOverlay">
+    <div id="exportBox">
+      <div id="exportSettings">
+        <div class="exp-title">Настройки видео</div>
+        <div class="exp-row"><span>Формат</span>
+          <div class="seg" id="segO">
+            <button data-v="portrait" class="sel" type="button">9:16</button>
+            <button data-v="landscape" type="button">16:9</button>
+          </div>
+        </div>
+        <div class="exp-row"><span>Качество</span>
+          <div class="seg" id="segQ">
+            <button data-v="480" type="button">480p</button>
+            <button data-v="720" type="button">720p</button>
+            <button data-v="1080" class="sel" type="button">1080p</button>
+          </div>
+        </div>
+        <div class="exp-row"><span>Кадров/сек</span>
+          <div class="seg" id="segF">
+            <button data-v="15" type="button">15</button>
+            <button data-v="24" type="button">24</button>
+            <button data-v="30" class="sel" type="button">30</button>
+            <button data-v="60" type="button">60</button>
+          </div>
+        </div>
+        <button id="exportStart" type="button">Начать рендер</button>
+        <button id="exportClose" type="button">Отмена</button>
+      </div>
+      <div id="exportProgress" style="display:none">
+        <div id="exportPct">0%</div>
+        <div id="exportBar"><div id="exportBarFill"></div></div>
+        <div id="exportStatus">Подготовка...</div>
+        <button id="exportCancel" type="button">Отмена</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="js/vendor/leaflet.js"></script>
+<script src="js/vendor/fflate.min.js"></script>
+<script src="js/vectormap.js"></script>
+<script src="js/cities.js"></script>
+<script src="js/parse.js"></script>
+<script src="js/player.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>

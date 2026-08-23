@@ -1,0 +1,463 @@
+/* WayBack — app.css
+   Лендинг: белая тема. Плеер (#player): тёмная чёрно-синяя тема. */
+
+:root {
+  --blue:    #2563eb;
+  --blue-hi: #3b82f6;
+  --blue-soft: #eff6ff;
+  --ink:     #0f172a;
+  --mut:     #64748b;
+  --line:    #e2e8f0;
+  --bg:      #ffffff;
+  --soft:    #f8fafc;
+
+  /* плеер */
+  --p-bg: #0b0e14;
+  --p-panel: rgba(13, 16, 24, 0.82);
+  --p-accent: #3b82f6;
+  --p-accent-hi: #60a5fa;
+  --p-text: #f4f3f1;
+  --p-dim: #9aa0ad;
+  --p-border: rgba(255,255,255,0.10);
+}
+
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0; background: var(--bg); color: var(--ink);
+  font-family: "Inter", "Segoe UI", -apple-system, Roboto, Helvetica, Arial, sans-serif;
+  line-height: 1.55;
+}
+body.in-player { overflow: hidden; }
+
+.wrap { max-width: 1040px; margin: 0 auto; padding: 0 24px; }
+.wrap.narrow { max-width: 720px; }
+
+/* ───────────────────────── шапка ───────────────────────── */
+.site-header {
+  position: sticky; top: 0; z-index: 50;
+  background: rgba(255,255,255,0.85); backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--line);
+}
+.site-header .wrap {
+  display: flex; align-items: center; justify-content: space-between;
+  height: 60px;
+}
+.logo {
+  display: flex; align-items: center; gap: 9px;
+  font-size: 20px; font-weight: 800; color: var(--ink);
+  text-decoration: none; letter-spacing: -0.3px;
+}
+.logo span { color: var(--blue); }
+.site-header nav { display: flex; gap: 26px; }
+.site-header nav a {
+  color: var(--mut); text-decoration: none; font-size: 14px; font-weight: 500;
+}
+.site-header nav a:hover { color: var(--blue); }
+
+/* ───────────────────────── герой ───────────────────────── */
+.hero {
+  padding: 72px 0 64px; text-align: center;
+  background:
+    radial-gradient(700px 340px at 20% -10%, #dbeafe 0%, transparent 60%),
+    radial-gradient(700px 340px at 85% 0%, #e0e7ff 0%, transparent 55%),
+    var(--bg);
+}
+.hero h1 {
+  font-size: clamp(32px, 5.4vw, 54px); font-weight: 850;
+  letter-spacing: -1.2px; line-height: 1.12; margin: 0 0 18px;
+}
+.hero h1 em {
+  font-style: normal;
+  background: linear-gradient(90deg, var(--blue), #7c3aed);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+.hero .sub {
+  max-width: 640px; margin: 0 auto 40px; color: var(--mut);
+  font-size: 17px;
+}
+
+.dropzone {
+  max-width: 620px; margin: 0 auto;
+  border: 2px dashed #cbd5e1; border-radius: 22px;
+  padding: 40px 28px; background: rgba(255,255,255,0.7);
+  transition: border-color .2s, background .2s, transform .15s;
+  cursor: pointer;
+}
+.dropzone:hover, .dropzone:focus-visible, .dropzone.over {
+  border-color: var(--blue-hi); background: var(--blue-soft);
+  outline: none;
+}
+.dropzone.over { transform: scale(1.015); }
+.dz-title { font-size: 19px; font-weight: 700; margin: 14px 0 6px; }
+.dz-sub { color: var(--mut); font-size: 14px; margin-bottom: 22px; }
+
+.btn {
+  border: none; border-radius: 12px; cursor: pointer;
+  font-size: 15px; font-weight: 650; padding: 12px 26px;
+  transition: filter .15s, transform .1s;
+}
+.btn:hover { filter: brightness(1.08); }
+.btn:active { transform: scale(0.97); }
+.btn.primary {
+  background: var(--blue); color: #fff;
+  box-shadow: 0 6px 18px rgba(37,99,235,0.35);
+}
+.btn.big { width: 100%; padding: 14px 0; font-size: 16px; margin-top: 20px; }
+
+.hero-notes {
+  margin-top: 26px; display: flex; flex-direction: column; gap: 10px;
+  align-items: center; font-size: 14px; color: var(--mut);
+}
+.linklike {
+  background: none; border: none; color: var(--blue); cursor: pointer;
+  font-size: 14px; font-weight: 550; padding: 4px;
+}
+.linklike:hover { text-decoration: underline; }
+
+/* ───────────────────────── секции ───────────────────────── */
+.section { padding: 72px 0; }
+.section.alt { background: var(--soft); border-block: 1px solid var(--line); }
+.section h2 {
+  font-size: clamp(24px, 3.4vw, 34px); font-weight: 800;
+  letter-spacing: -0.6px; margin: 0 0 36px; text-align: center;
+}
+
+.cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 22px; }
+.card {
+  background: #fff; border: 1px solid var(--line); border-radius: 18px;
+  padding: 28px 24px; box-shadow: 0 4px 20px rgba(15,23,42,0.05);
+}
+.card .num {
+  width: 34px; height: 34px; border-radius: 10px;
+  background: var(--blue-soft); color: var(--blue);
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 800; margin-bottom: 14px;
+}
+.card h3 { margin: 0 0 8px; font-size: 17px; }
+.card p { margin: 0; color: var(--mut); font-size: 14.5px; }
+
+.formats-grid {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px;
+  margin-bottom: 28px;
+}
+.fmt {
+  background: #fff; border: 1px solid var(--line); border-radius: 14px;
+  padding: 16px 18px; display: flex; flex-direction: column; gap: 4px;
+}
+.fmt b { font-size: 15px; }
+.fmt span { color: var(--mut); font-size: 13px; }
+
+.howto {
+  max-width: 720px; margin: 0 auto 10px;
+  background: #fff; border: 1px solid var(--line); border-radius: 12px;
+  padding: 12px 18px;
+}
+.howto summary { cursor: pointer; font-weight: 600; font-size: 14.5px; }
+.howto p { color: var(--mut); font-size: 14px; margin: 10px 0 4px; }
+
+/* Где искать: часть выгрузок есть только на компьютере, часть — только
+   в приложении. Это первое, обо что спотыкаются. */
+.howto-where {
+  display: inline-block; margin: 12px 0 2px !important;
+  background: #fef3c7; color: #92400e;
+  border-radius: 999px; padding: 3px 11px;
+  font-size: 12.5px !important; font-weight: 600;
+}
+/* Сам путь по меню — крупнее и контрастнее прочего текста */
+.howto-path {
+  color: var(--ink) !important; font-size: 15px !important;
+  line-height: 1.6; margin: 8px 0 !important;
+}
+.howto-wait {
+  display: inline-block; margin: 2px 0 6px !important;
+  background: var(--blue-soft); color: var(--blue);
+  border-radius: 999px; padding: 3px 11px;
+  font-size: 12.5px !important; font-weight: 600;
+}
+.howto-note {
+  max-width: 720px; margin: 18px auto 0; text-align: center;
+  color: var(--mut); font-size: 13.5px;
+}
+
+#privacy p { color: #334155; font-size: 16px; text-align: center; }
+
+.site-footer { border-top: 1px solid var(--line); padding: 26px 0; }
+.site-footer .wrap {
+  display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+  color: var(--mut); font-size: 13px;
+}
+
+/* ───────────────────────── модалки лендинга ───────────────────────── */
+.modal-overlay {
+  position: fixed; inset: 0; z-index: 300; display: none;
+  background: rgba(15, 23, 42, 0.45); backdrop-filter: blur(4px);
+  align-items: center; justify-content: center; padding: 20px;
+}
+.modal-overlay.visible { display: flex; }
+.modal {
+  background: #fff; border-radius: 20px; padding: 32px 36px;
+  width: min(440px, 100%); box-shadow: 0 24px 70px rgba(15,23,42,0.35);
+  text-align: center;
+}
+.modal-title { font-size: 20px; font-weight: 800; margin-bottom: 8px; }
+.modal-sub { color: var(--mut); font-size: 14px; margin-bottom: 8px; }
+.bar {
+  height: 8px; border-radius: 4px; background: var(--line);
+  margin: 18px 0 12px; overflow: hidden;
+}
+#parseBarFill {
+  height: 100%; width: 0%; border-radius: 4px;
+  background: linear-gradient(90deg, var(--blue), var(--blue-hi));
+  transition: width .2s linear;
+}
+.type-filters {
+  display: flex; flex-wrap: wrap; gap: 8px; justify-content: center;
+  margin: 16px 0 4px;
+}
+.type-filters label {
+  display: flex; align-items: center; gap: 6px;
+  border: 1px solid var(--line); border-radius: 999px;
+  padding: 6px 14px; font-size: 13.5px; cursor: pointer; user-select: none;
+}
+.type-filters label:has(input:checked) {
+  border-color: var(--blue-hi); background: var(--blue-soft); color: var(--blue);
+}
+.type-filters input { accent-color: var(--blue); }
+
+/* ───────────────────────── ПЛЕЕР (тёмная тема) ───────────────────────── */
+#player {
+  position: fixed; inset: 0; z-index: 100; background: var(--p-bg);
+  font-family: "Inter", "Segoe UI", -apple-system, Roboto, Helvetica, Arial, sans-serif;
+}
+#player[hidden] { display: none; }
+#map { position: absolute; inset: 0; background: var(--p-bg); }
+
+/* Кадр превью повторяет пропорции будущего видео и центрируется;
+   размер в пикселях выставляет player.js через frameSize() */
+#liveCanvas {
+  position: absolute; left: 50%; top: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 500; display: none;
+  pointer-events: none; background: var(--p-bg);
+  box-shadow: 0 0 0 1px rgba(255,255,255,0.06);
+}
+#liveCanvas.visible { display: block; }
+/* Пока идёт проигрывание, поля вокруг вертикального кадра должны быть
+   чёрными, а не обрезком карты */
+#player.playing #map { visibility: hidden; }
+
+/* Индикатор подготовки карты: показывается до старта проигрывания,
+   пока грузится начало таймлайна. Остальное догружается фоном. */
+#mapLoading {
+  position: absolute; inset: 0; z-index: 1200; display: none;
+  align-items: center; justify-content: center;
+  background: rgba(11,14,20,0.55); backdrop-filter: blur(2px);
+}
+#mapLoading.show { display: flex; }
+.ml-card {
+  display: flex; align-items: center; gap: 12px;
+  background: var(--p-panel); border: 1px solid var(--p-border);
+  border-radius: 999px; padding: 12px 20px; color: var(--p-text);
+  box-shadow: 0 12px 32px rgba(0,0,0,0.5); font-size: 13.5px;
+}
+.ml-dot {
+  width: 9px; height: 9px; border-radius: 50%; background: var(--p-accent);
+  flex: 0 0 auto; animation: mlPulse 1.1s ease-in-out infinite;
+}
+@keyframes mlPulse {
+  0%, 100% { opacity: 0.35; transform: scale(0.8); }
+  50%      { opacity: 1;    transform: scale(1.15); }
+}
+.ml-text { flex: 0 0 auto; letter-spacing: 0.2px; }
+.ml-bar {
+  width: 110px; height: 4px; border-radius: 2px; flex: 0 0 auto;
+  background: rgba(255,255,255,0.10); overflow: hidden;
+}
+#mapLoadingBar {
+  height: 100%; width: 0%; border-radius: 2px;
+  background: linear-gradient(90deg, var(--p-accent), var(--p-accent-hi));
+  transition: width .18s linear;
+}
+
+#hud {
+  position: absolute; top: 18px; left: 18px; z-index: 1000;
+  background: var(--p-panel); color: var(--p-text); border: 1px solid var(--p-border);
+  border-radius: 16px; padding: 16px 20px; backdrop-filter: blur(10px);
+  min-width: 240px; box-shadow: 0 12px 32px rgba(0,0,0,0.45);
+}
+#hud h1 { font-size: 13px; font-weight: 700; margin: 0; letter-spacing: 1.5px;
+  text-transform: uppercase; color: var(--p-accent-hi); }
+#hud .current-date { font-size: 28px; font-weight: 800; margin-top: 6px;
+  font-variant-numeric: tabular-nums; letter-spacing: 0.5px; }
+#hud .current-date.period { font-size: 18px; line-height: 1.35; }
+#hud .current-name { font-size: 13px; color: var(--p-dim); margin-top: 2px;
+  min-height: 17px; max-width: 240px; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; }
+#hud .stats { display: flex; gap: 18px; margin-top: 12px; padding-top: 12px;
+  border-top: 1px solid var(--p-border); }
+#hud .stat .v { font-size: 18px; font-weight: 700; color: var(--p-accent-hi);
+  font-variant-numeric: tabular-nums; }
+#hud .stat .l { font-size: 11px; color: var(--p-dim); margin-top: 1px; }
+
+#backBtn {
+  position: absolute; top: 18px; right: 18px; z-index: 1000;
+  height: 38px; padding: 0 16px; font-size: 13px;
+}
+
+#controls {
+  position: absolute; bottom: 18px; left: 50%; transform: translateX(-50%);
+  z-index: 1000; width: min(960px, calc(100% - 36px));
+  background: var(--p-panel); color: var(--p-text); border: 1px solid var(--p-border);
+  border-radius: 16px; padding: 12px 16px; backdrop-filter: blur(10px);
+  display: flex; align-items: center; gap: 12px;
+  box-shadow: 0 12px 32px rgba(0,0,0,0.45);
+}
+#player button {
+  background: var(--p-accent); color: #fff; border: none; border-radius: 10px;
+  width: 42px; height: 42px; font-size: 16px; cursor: pointer; flex: 0 0 auto;
+  display: flex; align-items: center; justify-content: center; font-weight: 700;
+  transition: filter .15s, transform .1s;
+}
+#player button:hover { filter: brightness(1.15); }
+#player button:active { transform: scale(0.95); }
+#player button:disabled { filter: grayscale(0.7) brightness(0.7); cursor: default; }
+#player button.secondary { background: transparent; color: var(--p-text);
+  border: 1px solid var(--p-border); width: auto; padding: 0 14px; font-size: 13px; }
+#slider { flex: 1 1 auto; accent-color: var(--p-accent); cursor: pointer; }
+#player select {
+  background: rgba(255,255,255,0.05); color: var(--p-text);
+  border: 1px solid var(--p-border);
+  border-radius: 10px; padding: 9px 6px; font-size: 12px; flex: 0 0 auto;
+  cursor: pointer;
+}
+#player select option { background: #151a24; }
+#player label.follow {
+  display: flex; align-items: center; gap: 6px; font-size: 12px;
+  color: var(--p-dim); cursor: pointer; flex: 0 0 auto; user-select: none;
+}
+#player label.follow input { accent-color: var(--p-accent); cursor: pointer; }
+#counter { font-size: 12px; color: var(--p-dim); flex: 0 0 auto;
+  min-width: 86px; text-align: right; font-variant-numeric: tabular-nums; }
+
+.head-marker { pointer-events: none; }
+.head-marker .core {
+  position: absolute; left: -7px; top: -7px; width: 14px; height: 14px;
+  border-radius: 50%; background: var(--p-accent); border: 2px solid #fff;
+  box-shadow: 0 0 14px rgba(59,130,246,0.95), 0 0 34px rgba(59,130,246,0.45);
+}
+
+.burst { pointer-events: none; }
+.burst .ring {
+  position: absolute; left: -11px; top: -11px; width: 22px; height: 22px;
+  border-radius: 50%; border: 2.5px solid var(--p-accent);
+  animation: burst 0.7s ease-out forwards;
+}
+.burst .ring.r2 { animation-delay: 0.16s; opacity: 0; }
+@keyframes burst {
+  0%   { transform: scale(0.35); opacity: 0.95; }
+  100% { transform: scale(2.8);  opacity: 0; }
+}
+
+#player .leaflet-popup-content-wrapper, #player .leaflet-popup-tip {
+  background: #151a24; color: var(--p-text);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+}
+
+#exportOverlay {
+  position: fixed; inset: 0; z-index: 2000; display: none;
+  background: rgba(5, 7, 11, 0.92); backdrop-filter: blur(8px);
+  align-items: center; justify-content: center;
+}
+#exportOverlay.visible { display: flex; }
+#exportBox {
+  background: var(--p-panel); border: 1px solid var(--p-border); border-radius: 20px;
+  padding: 36px 44px; text-align: center; min-width: 360px; color: var(--p-text);
+  box-shadow: 0 20px 60px rgba(0,0,0,0.6);
+}
+#exportPct { font-size: 52px; font-weight: 800; color: var(--p-accent-hi);
+  font-variant-numeric: tabular-nums; }
+#exportBar { height: 8px; border-radius: 4px; background: rgba(255,255,255,0.08);
+  margin: 18px 0 14px; overflow: hidden; }
+#exportBarFill { height: 100%; width: 0%; border-radius: 4px;
+  background: linear-gradient(90deg, var(--p-accent), var(--p-accent-hi));
+  transition: width .2s linear; }
+#exportStatus { color: var(--p-dim); font-size: 14px; margin-bottom: 22px;
+  max-width: 380px; }
+#exportCancel { width: auto !important; padding: 0 20px !important; height: 40px;
+  font-size: 13px !important; background: transparent !important;
+  color: var(--p-text) !important; border: 1px solid var(--p-border) !important;
+  margin: 0 auto; }
+
+#exportSettings .exp-title { font-size: 18px; font-weight: 700; color: var(--p-text);
+  margin-bottom: 20px; }
+.exp-row { display: flex; align-items: center; justify-content: space-between;
+  gap: 16px; margin-bottom: 14px; }
+.exp-row > span { font-size: 13px; color: var(--p-dim); flex: 0 0 auto; }
+.seg { display: flex; gap: 6px; }
+.seg button {
+  width: auto !important; height: 34px; padding: 0 14px !important;
+  font-size: 13px !important;
+  background: rgba(255,255,255,0.05) !important; color: var(--p-text) !important;
+  border: 1px solid var(--p-border) !important; border-radius: 8px !important;
+  font-weight: 600 !important;
+}
+.seg button.sel {
+  background: var(--p-accent) !important; color: #fff !important;
+  border-color: var(--p-accent) !important;
+}
+#exportStart { width: 100% !important; height: 44px; font-size: 14px !important;
+  margin: 18px 0 10px; border-radius: 10px !important; }
+#exportClose { width: 100% !important; height: 38px; font-size: 13px !important;
+  background: transparent !important; color: var(--p-dim) !important;
+  border: none !important; }
+
+/* ───────────────────────── адаптив ───────────────────────── */
+@media (max-width: 860px) {
+  .cards, .formats-grid { grid-template-columns: 1fr 1fr; }
+}
+
+@media (max-width: 640px) {
+  .site-header nav { display: none; }
+  .cards, .formats-grid { grid-template-columns: 1fr; }
+  .hero { padding: 44px 0 40px; }
+  .hero .sub { font-size: 15.5px; margin-bottom: 28px; }
+  .wrap { padding: 0 16px; }
+  .dropzone { padding: 28px 18px; border-radius: 18px; }
+  .dz-title { font-size: 17px; }
+  .section { padding: 48px 0; }
+  .modal { padding: 26px 20px; }
+  .site-footer .wrap { flex-direction: column; gap: 6px; }
+
+  /* Плеер: панель в две строки, кнопки под палец (минимум 44px) */
+  #hud {
+    top: 10px; left: 10px; right: 10px; padding: 12px 14px; border-radius: 14px;
+  }
+  #hud .current-date { font-size: 22px; }
+  #hud .current-date.period { font-size: 15px; }
+  #hud .current-name { max-width: none; }
+  #backBtn { top: 10px; right: 10px; height: 34px; padding: 0 12px; }
+  #controls {
+    bottom: 10px; left: 10px; right: 10px; transform: none; width: auto;
+    flex-wrap: wrap; gap: 8px; padding: 10px 12px;
+  }
+  #slider { order: -1; flex-basis: 100%; height: 26px; }
+  #player button { width: 44px; height: 44px; }
+  #player select { padding: 11px 6px; flex: 1 1 40%; min-width: 0; font-size: 11.5px; }
+  #videoBtn { flex: 1 1 auto; justify-content: center; }
+  /* Камера включена по умолчанию, и на телефоне это единственный
+     осмысленный режим — прячем переключатель, экономя строку */
+  #player label.follow { display: none; }
+  /* Счётчик не прячем: в нём идёт прогресс загрузки карты («карта 40%»),
+     без него ожидание выглядит как зависание */
+  #counter { flex-basis: 100%; text-align: center; min-width: 0; }
+  #exportBox { min-width: 0; width: calc(100% - 32px); padding: 26px 20px; }
+  .exp-row { flex-wrap: wrap; gap: 8px; }
+}
+
+/* На узких экранах панель поверх вертикального кадра съедает половину
+   картинки — прячем её и оставляем только управление */
+@media (max-width: 640px) and (orientation: portrait) {
+  #player.playing #hud { display: none; }
+}
+

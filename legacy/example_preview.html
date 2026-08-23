@@ -1,0 +1,1033 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Карта пробежек — анимация</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<style>
+  :root {
+    --bg: #0b0e14;
+    --panel: rgba(13, 16, 24, 0.82);
+    --accent: #ff5a36;
+    --accent-hi: #ff8b62;
+    --text: #f4f3f1;
+    --text-dim: #9aa0ad;
+    --border: rgba(255,255,255,0.10);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg);
+    font-family: "Segoe UI", -apple-system, Roboto, Helvetica, Arial, sans-serif; }
+  #map { position: absolute; inset: 0; background: var(--bg); }
+
+  /* Канвас кинематографичного проигрывания — поверх карты, под панелями */
+  #liveCanvas {
+    position: absolute; inset: 0; z-index: 500; display: none;
+    width: 100%; height: 100%; pointer-events: none; background: var(--bg);
+  }
+  #liveCanvas.visible { display: block; }
+
+  #hud {
+    position: absolute; top: 18px; left: 18px; z-index: 1000;
+    background: var(--panel); color: var(--text); border: 1px solid var(--border);
+    border-radius: 16px; padding: 16px 20px; backdrop-filter: blur(10px);
+    min-width: 240px; box-shadow: 0 12px 32px rgba(0,0,0,0.45);
+  }
+  #hud h1 { font-size: 13px; font-weight: 600; margin: 0; letter-spacing: 0.6px;
+    text-transform: uppercase; color: var(--text-dim); }
+  #hud .current-date { font-size: 28px; font-weight: 800; margin-top: 6px;
+    font-variant-numeric: tabular-nums; letter-spacing: 0.5px; }
+  #hud .current-date.period { font-size: 18px; line-height: 1.35; }
+  #hud .current-name { font-size: 13px; color: var(--text-dim); margin-top: 2px;
+    min-height: 17px; max-width: 240px; overflow: hidden; text-overflow: ellipsis;
+    white-space: nowrap; }
+  #hud .stats { display: flex; gap: 18px; margin-top: 12px; padding-top: 12px;
+    border-top: 1px solid var(--border); }
+  #hud .stat .v { font-size: 18px; font-weight: 700; color: var(--accent-hi);
+    font-variant-numeric: tabular-nums; }
+  #hud .stat .l { font-size: 11px; color: var(--text-dim); margin-top: 1px; }
+
+  #controls {
+    position: absolute; bottom: 18px; left: 50%; transform: translateX(-50%);
+    z-index: 1000; width: min(960px, calc(100% - 36px));
+    background: var(--panel); color: var(--text); border: 1px solid var(--border);
+    border-radius: 16px; padding: 12px 16px; backdrop-filter: blur(10px);
+    display: flex; align-items: center; gap: 12px;
+    box-shadow: 0 12px 32px rgba(0,0,0,0.45);
+  }
+  button {
+    background: var(--accent); color: #0b0e14; border: none; border-radius: 10px;
+    width: 42px; height: 42px; font-size: 16px; cursor: pointer; flex: 0 0 auto;
+    display: flex; align-items: center; justify-content: center; font-weight: 700;
+    transition: filter .15s, transform .1s;
+  }
+  button:hover { filter: brightness(1.12); }
+  button:active { transform: scale(0.95); }
+  button:disabled { filter: grayscale(0.7) brightness(0.7); cursor: default; }
+  button.secondary { background: transparent; color: var(--text);
+    border: 1px solid var(--border); width: auto; padding: 0 14px; font-size: 13px; }
+  #slider { flex: 1 1 auto; accent-color: var(--accent); cursor: pointer; }
+  select {
+    background: rgba(255,255,255,0.05); color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 10px; padding: 9px 6px; font-size: 12px; flex: 0 0 auto;
+    cursor: pointer;
+  }
+  select option { background: #151a24; }
+  label.follow {
+    display: flex; align-items: center; gap: 6px; font-size: 12px;
+    color: var(--text-dim); cursor: pointer; flex: 0 0 auto; user-select: none;
+  }
+  label.follow input { accent-color: var(--accent); cursor: pointer; }
+  #counter { font-size: 12px; color: var(--text-dim); flex: 0 0 auto;
+    min-width: 86px; text-align: right; font-variant-numeric: tabular-nums; }
+
+  .head-marker { pointer-events: none; }
+  .head-marker .core {
+    position: absolute; left: -7px; top: -7px; width: 14px; height: 14px;
+    border-radius: 50%; background: var(--accent); border: 2px solid #fff;
+    box-shadow: 0 0 14px rgba(255,90,54,0.95), 0 0 34px rgba(255,90,54,0.45);
+  }
+
+  .burst { pointer-events: none; }
+  .burst .ring {
+    position: absolute; left: -11px; top: -11px; width: 22px; height: 22px;
+    border-radius: 50%; border: 2.5px solid var(--accent);
+    animation: burst 0.7s ease-out forwards;
+  }
+  .burst .ring.r2 { animation-delay: 0.16s; opacity: 0; }
+  @keyframes burst {
+    0%   { transform: scale(0.35); opacity: 0.95; }
+    100% { transform: scale(2.8);  opacity: 0; }
+  }
+
+  .leaflet-popup-content-wrapper, .leaflet-popup-tip {
+    background: #151a24; color: var(--text);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+  }
+
+  #exportOverlay {
+    position: fixed; inset: 0; z-index: 2000; display: none;
+    background: rgba(5, 7, 11, 0.92); backdrop-filter: blur(8px);
+    align-items: center; justify-content: center;
+  }
+  #exportOverlay.visible { display: flex; }
+  #exportBox {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 20px;
+    padding: 36px 44px; text-align: center; min-width: 360px;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.6);
+  }
+  #exportPct { font-size: 52px; font-weight: 800; color: var(--accent-hi);
+    font-variant-numeric: tabular-nums; }
+  #exportBar { height: 8px; border-radius: 4px; background: rgba(255,255,255,0.08);
+    margin: 18px 0 14px; overflow: hidden; }
+  #exportBarFill { height: 100%; width: 0%; border-radius: 4px;
+    background: linear-gradient(90deg, var(--accent), var(--accent-hi));
+    transition: width .2s linear; }
+  #exportStatus { color: var(--text-dim); font-size: 14px; margin-bottom: 22px;
+    max-width: 380px; }
+  #exportCancel { width: auto; padding: 0 20px; height: 40px; font-size: 13px;
+    background: transparent; color: var(--text); border: 1px solid var(--border);
+    margin: 0 auto; }
+
+  /* Настройки видео перед рендером */
+  #exportSettings .exp-title { font-size: 18px; font-weight: 700; color: var(--text);
+    margin-bottom: 20px; }
+  .exp-row { display: flex; align-items: center; justify-content: space-between;
+    gap: 16px; margin-bottom: 14px; }
+  .exp-row > span { font-size: 13px; color: var(--text-dim); flex: 0 0 auto; }
+  .seg { display: flex; gap: 6px; }
+  .seg button { width: auto; height: 34px; padding: 0 14px; font-size: 13px;
+    background: rgba(255,255,255,0.05); color: var(--text);
+    border: 1px solid var(--border); border-radius: 8px; font-weight: 600; }
+  .seg button.sel { background: var(--accent); color: #0b0e14;
+    border-color: var(--accent); }
+  #exportStart { width: 100%; height: 44px; font-size: 14px; margin: 18px 0 10px;
+    border-radius: 10px; }
+  #exportClose { width: 100%; height: 38px; font-size: 13px;
+    background: transparent; color: var(--text-dim); border: none; }
+
+  @media (max-width: 640px) {
+    #hud { right: 18px; min-width: 0; }
+    #controls { flex-wrap: wrap; }
+    #slider { order: 1; flex-basis: 100%; }
+  }
+</style>
+</head>
+<body>
+
+<div id="map"></div>
+<canvas id="liveCanvas"></canvas>
+
+<div id="hud">
+  <h1>Карта пробежек</h1>
+  <div class="current-date" id="currentDate">—</div>
+  <div class="current-name" id="currentName">2023-01-08 — 2025-01-23</div>
+  <div class="stats">
+    <div class="stat"><div class="v"><span id="shownCount">0</span> / 140</div><div class="l">пробежек</div></div>
+    <div class="stat"><div class="v" id="cumKm">0</div><div class="l">км суммарно</div></div>
+  </div>
+</div>
+
+<div id="controls">
+  <button id="playBtn" title="Играть / Пауза">▶</button>
+  <button class="secondary" id="resetBtn" title="Сначала">⟲</button>
+  <input type="range" id="slider" min="0" max="140" value="140" step="1">
+  <select id="speed" title="Скорость">
+    <option value="1000">Очень медленно</option>
+    <option value="333">Медленно</option>
+    <option value="200" selected>Обычно</option>
+    <option value="100">Быстро</option>
+    <option value="50">Очень быстро</option>
+  </select>
+  <label class="follow" title="Камера следует за точками (кинорежим)">
+    <input type="checkbox" id="followCam" checked> камера
+  </label>
+  <button class="secondary" id="videoBtn" title="Записать и скачать видеофайл">⬇ Скачать видео</button>
+  <div id="counter"></div>
+</div>
+
+<div id="exportOverlay">
+  <div id="exportBox">
+    <div id="exportSettings">
+      <div class="exp-title">Настройки видео</div>
+      <div class="exp-row"><span>Качество</span>
+        <div class="seg" id="segQ">
+          <button data-v="480">480p</button>
+          <button data-v="720">720p</button>
+          <button data-v="1080" class="sel">1080p</button>
+        </div>
+      </div>
+      <div class="exp-row"><span>Кадров/сек</span>
+        <div class="seg" id="segF">
+          <button data-v="15">15</button>
+          <button data-v="24">24</button>
+          <button data-v="30" class="sel">30</button>
+          <button data-v="60">60</button>
+        </div>
+      </div>
+      <button id="exportStart">Начать рендер</button>
+      <button id="exportClose">Отмена</button>
+    </div>
+    <div id="exportProgress" style="display:none">
+      <div id="exportPct">0%</div>
+      <div id="exportBar"><div id="exportBarFill"></div></div>
+      <div id="exportStatus">Подготовка...</div>
+      <button id="exportCancel">Отмена</button>
+    </div>
+  </div>
+</div>
+
+<script>
+'use strict';
+const RUNS = [{"activityId": 1000, "name": "Пробежка Москва", "type": "trail_running", "date": "2023-01-08", "datetime": "2023-01-08 07:00:00", "lat": 55.72730064531336, "lon": 37.60380175910215, "distance_km": 7.02, "duration_min": 93.6}, {"activityId": 1001, "name": "Пробежка Берлин", "type": "running", "date": "2023-01-11", "datetime": "2023-01-11 07:01:00", "lat": 52.51531530918112, "lon": 13.376787833166283, "distance_km": 6.94, "duration_min": 70.5}, {"activityId": 1002, "name": "Пробежка Берлин", "type": "running", "date": "2023-01-13", "datetime": "2023-01-13 07:02:00", "lat": 52.5019302590412, "lon": 13.413993066266771, "distance_km": 12.81, "duration_min": 42.0}, {"activityId": 1003, "name": "Пробежка Москва", "type": "running", "date": "2023-01-19", "datetime": "2023-01-19 07:03:00", "lat": 55.77132844202779, "lon": 37.596879558982614, "distance_km": 10.61, "duration_min": 47.8}, {"activityId": 1004, "name": "Пробежка Рим", "type": "running", "date": "2023-01-24", "datetime": "2023-01-24 07:04:00", "lat": 41.87893261659119, "lon": 12.48919563803824, "distance_km": 9.46, "duration_min": 54.4}, {"activityId": 1005, "name": "Пробежка Москва", "type": "trail_running", "date": "2023-01-30", "datetime": "2023-01-30 07:05:00", "lat": 55.76958390720163, "lon": 37.619473685487286, "distance_km": 20.52, "duration_min": 57.9}, {"activityId": 1006, "name": "Пробежка Берлин", "type": "running", "date": "2023-02-05", "datetime": "2023-02-05 07:06:00", "lat": 52.54312710487621, "lon": 13.396698101570019, "distance_km": 6.46, "duration_min": 27.0}, {"activityId": 1007, "name": "Пробежка Рим", "type": "running", "date": "2023-02-10", "datetime": "2023-02-10 07:07:00", "lat": 41.931913291239646, "lon": 12.517719063260909, "distance_km": 18.6, "duration_min": 58.0}, {"activityId": 1008, "name": "Пробежка Рим", "type": "running", "date": "2023-02-19", "datetime": "2023-02-19 07:08:00", "lat": 41.88255924582936, "lon": 12.48771624201365, "distance_km": 15.06, "duration_min": 90.2}, {"activityId": 1009, "name": "Пробежка Берлин", "type": "running", "date": "2023-02-22", "datetime": "2023-02-22 07:09:00", "lat": 52.528098697291824, "lon": 13.407048392621782, "distance_km": 7.41, "duration_min": 66.2}, {"activityId": 1010, "name": "Пробежка Берлин", "type": "trail_running", "date": "2023-02-28", "datetime": "2023-02-28 07:10:00", "lat": 52.50317691043822, "lon": 13.394456964064918, "distance_km": 16.83, "duration_min": 25.6}, {"activityId": 1011, "name": "Пробежка Москва", "type": "running", "date": "2023-03-02", "datetime": "2023-03-02 07:11:00", "lat": 55.774102748046275, "lon": 37.61136988722134, "distance_km": 4.19, "duration_min": 111.3}, {"activityId": 1012, "name": "Пробежка Санкт-Петербург", "type": "running", "date": "2023-03-09", "datetime": "2023-03-09 07:12:00", "lat": 59.94362631991769, "lon": 30.32883791406364, "distance_km": 19.46, "duration_min": 65.9}, {"activityId": 1013, "name": "Пробежка Санкт-Петербург", "type": "running", "date": "2023-03-15", "datetime": "2023-03-15 07:13:00", "lat": 59.91909765046164, "lon": 30.33878208804979, "distance_km": 7.73, "duration_min": 78.5}, {"activityId": 1014, "name": "Пробежка Рим", "type": "running", "date": "2023-03-23", "datetime": "2023-03-23 07:14:00", "lat": 41.88595924554944, "lon": 12.526252256389705, "distance_km": 12.17, "duration_min": 29.1}, {"activityId": 1015, "name": "Пробежка Москва", "type": "trail_running", "date": "2023-03-25", "datetime": "2023-03-25 07:15:00", "lat": 55.73497047916089, "lon": 37.59689892010335, "distance_km": 15.25, "duration_min": 79.6}, {"activityId": 1016, "name": "Пробежка Париж", "type": "running", "date": "2023-04-02", "datetime": "2023-04-02 07:16:00", "lat": 48.86235330570167, "lon": 2.3502829932670806, "distance_km": 7.53, "duration_min": 75.3}, {"activityId": 1017, "name": "Пробежка Москва", "type": "running", "date": "2023-04-04", "datetime": "2023-04-04 07:17:00", "lat": 55.766702622141594, "lon": 37.61951821982453, "distance_km": 7.8, "duration_min": 84.1}, {"activityId": 1018, "name": "Пробежка Рим", "type": "running", "date": "2023-04-07", "datetime": "2023-04-07 07:18:00", "lat": 41.89888591504015, "lon": 12.493623422379752, "distance_km": 20.17, "duration_min": 107.6}, {"activityId": 1019, "name": "Пробежка Берлин", "type": "running", "date": "2023-04-13", "datetime": "2023-04-13 07:19:00", "lat": 52.53571773194313, "lon": 13.405460900476259, "distance_km": 4.92, "duration_min": 82.5}, {"activityId": 1020, "name": "Пробежка Санкт-Петербург", "type": "trail_running", "date": "2023-04-18", "datetime": "2023-04-18 07:20:00", "lat": 59.92673483115547, "lon": 30.31479294214519, "distance_km": 20.16, "duration_min": 112.2}, {"activityId": 1021, "name": "Пробежка Берлин", "type": "running", "date": "2023-04-20", "datetime": "2023-04-20 07:21:00", "lat": 52.50944936342028, "lon": 13.37616860454315, "distance_km": 19.72, "duration_min": 107.9}, {"activityId": 1022, "name": "Пробежка Москва", "type": "running", "date": "2023-04-26", "datetime": "2023-04-26 07:22:00", "lat": 55.740167138620286, "lon": 37.60175229554683, "distance_km": 13.21, "duration_min": 27.9}, {"activityId": 1023, "name": "Пробежка Москва", "type": "running", "date": "2023-05-05", "datetime": "2023-05-05 07:23:00", "lat": 55.78447906962064, "lon": 37.61926237017177, "distance_km": 5.26, "duration_min": 86.0}, {"activityId": 1024, "name": "Пробежка Рим", "type": "running", "date": "2023-05-09", "datetime": "2023-05-09 07:24:00", "lat": 41.90446042724509, "lon": 12.502795635048956, "distance_km": 20.36, "duration_min": 112.9}, {"activityId": 1025, "name": "Пробежка Рим", "type": "trail_running", "date": "2023-05-14", "datetime": "2023-05-14 07:25:00", "lat": 41.89673953799984, "lon": 12.506701217578296, "distance_km": 9.72, "duration_min": 110.0}, {"activityId": 1026, "name": "Пробежка Москва", "type": "running", "date": "2023-05-23", "datetime": "2023-05-23 07:26:00", "lat": 55.740674336819964, "lon": 37.59114155377958, "distance_km": 3.38, "duration_min": 75.4}, {"activityId": 1027, "name": "Пробежка Москва", "type": "running", "date": "2023-05-28", "datetime": "2023-05-28 07:27:00", "lat": 55.73005958516054, "lon": 37.625166177436206, "distance_km": 7.12, "duration_min": 110.5}, {"activityId": 1028, "name": "Пробежка Москва", "type": "running", "date": "2023-06-04", "datetime": "2023-06-04 07:28:00", "lat": 55.756649367188515, "lon": 37.60400863583787, "distance_km": 11.74, "duration_min": 73.9}, {"activityId": 1029, "name": "Пробежка Санкт-Петербург", "type": "running", "date": "2023-06-13", "datetime": "2023-06-13 07:29:00", "lat": 59.951377165457444, "lon": 30.353549819866, "distance_km": 6.43, "duration_min": 29.7}, {"activityId": 1030, "name": "Пробежка Рим", "type": "trail_running", "date": "2023-06-21", "datetime": "2023-06-21 07:30:00", "lat": 41.898214717381194, "lon": 12.4944214800822, "distance_km": 16.12, "duration_min": 87.3}, {"activityId": 1031, "name": "Пробежка Москва", "type": "running", "date": "2023-06-24", "datetime": "2023-06-24 07:31:00", "lat": 55.74995727692614, "lon": 37.6076581563237, "distance_km": 18.51, "duration_min": 44.9}, {"activityId": 1032, "name": "Пробежка Берлин", "type": "running", "date": "2023-06-29", "datetime": "2023-06-29 07:32:00", "lat": 52.516916812869994, "lon": 13.400312898390064, "distance_km": 8.01, "duration_min": 45.0}, {"activityId": 1033, "name": "Пробежка Москва", "type": "running", "date": "2023-07-02", "datetime": "2023-07-02 07:33:00", "lat": 55.75238784470321, "lon": 37.63898094628571, "distance_km": 12.91, "duration_min": 25.1}, {"activityId": 1034, "name": "Пробежка Москва", "type": "running", "date": "2023-07-04", "datetime": "2023-07-04 07:34:00", "lat": 55.78138201898049, "lon": 37.63822174406486, "distance_km": 5.99, "duration_min": 68.6}, {"activityId": 1035, "name": "Пробежка Париж", "type": "trail_running", "date": "2023-07-09", "datetime": "2023-07-09 07:35:00", "lat": 48.880746571930636, "lon": 2.3320782272840916, "distance_km": 3.04, "duration_min": 59.0}, {"activityId": 1036, "name": "Пробежка Рим", "type": "running", "date": "2023-07-18", "datetime": "2023-07-18 07:36:00", "lat": 41.89818044915941, "lon": 12.52383905845158, "distance_km": 20.92, "duration_min": 75.6}, {"activityId": 1037, "name": "Пробежка Санкт-Петербург", "type": "running", "date": "2023-07-27", "datetime": "2023-07-27 07:37:00", "lat": 59.91569387203606, "lon": 30.31816205390485, "distance_km": 4.05, "duration_min": 93.6}, {"activityId": 1038, "name": "Пробежка Рим", "type": "running", "date": "2023-07-29", "datetime": "2023-07-29 07:38:00", "lat": 41.87622991637445, "lon": 12.501450655667538, "distance_km": 12.05, "duration_min": 105.3}, {"activityId": 1039, "name": "Пробежка Москва", "type": "running", "date": "2023-08-02", "datetime": "2023-08-02 07:39:00", "lat": 55.78344673419647, "lon": 37.59210668791444, "distance_km": 6.34, "duration_min": 79.5}, {"activityId": 1040, "name": "Пробежка Париж", "type": "trail_running", "date": "2023-08-07", "datetime": "2023-08-07 07:40:00", "lat": 48.83379319683683, "lon": 2.375617238847766, "distance_km": 7.43, "duration_min": 79.5}, {"activityId": 1041, "name": "Пробежка Париж", "type": "running", "date": "2023-08-10", "datetime": "2023-08-10 07:41:00", "lat": 48.866042389868355, "lon": 2.3561136154306452, "distance_km": 8.69, "duration_min": 46.1}, {"activityId": 1042, "name": "Пробежка Санкт-Петербург", "type": "running", "date": "2023-08-17", "datetime": "2023-08-17 07:42:00", "lat": 59.92023687075188, "lon": 30.31295269692765, "distance_km": 14.62, "duration_min": 65.7}, {"activityId": 1043, "name": "Пробежка Москва", "type": "running", "date": "2023-08-20", "datetime": "2023-08-20 07:43:00", "lat": 55.753297131357115, "lon": 37.64720726645127, "distance_km": 20.93, "duration_min": 27.3}, {"activityId": 1044, "name": "Пробежка Москва", "type": "running", "date": "2023-08-25", "datetime": "2023-08-25 07:44:00", "lat": 55.75615308164293, "lon": 37.595247394221985, "distance_km": 9.28, "duration_min": 26.9}, {"activityId": 1045, "name": "Пробежка Рим", "type": "trail_running", "date": "2023-08-30", "datetime": "2023-08-30 07:45:00", "lat": 41.889899243472996, "lon": 12.492691074380462, "distance_km": 12.78, "duration_min": 50.3}, {"activityId": 1046, "name": "Пробежка Берлин", "type": "running", "date": "2023-09-01", "datetime": "2023-09-01 07:46:00", "lat": 52.507962725132, "lon": 13.414803322897964, "distance_km": 19.9, "duration_min": 33.4}, {"activityId": 1047, "name": "Пробежка Москва", "type": "running", "date": "2023-09-04", "datetime": "2023-09-04 07:47:00", "lat": 55.77034500103886, "lon": 37.5966268745865, "distance_km": 8.07, "duration_min": 41.1}, {"activityId": 1048, "name": "Пробежка Санкт-Петербург", "type": "running", "date": "2023-09-11", "datetime": "2023-09-11 07:48:00", "lat": 59.94554982772808, "lon": 30.356274768923516, "distance_km": 12.1, "duration_min": 45.1}, {"activityId": 1049, "name": "Пробежка Москва", "type": "running", "date": "2023-09-13", "datetime": "2023-09-13 07:49:00", "lat": 55.763857066838554, "lon": 37.63706088536233, "distance_km": 3.79, "duration_min": 53.4}, {"activityId": 1050, "name": "Пробежка Рим", "type": "trail_running", "date": "2023-09-17", "datetime": "2023-09-17 07:50:00", "lat": 41.882494918576434, "lon": 12.49291013071165, "distance_km": 15.7, "duration_min": 76.1}, {"activityId": 1051, "name": "Пробежка Москва", "type": "running", "date": "2023-09-20", "datetime": "2023-09-20 07:51:00", "lat": 55.7825030563428, "lon": 37.62876117742535, "distance_km": 5.68, "duration_min": 23.6}, {"activityId": 1052, "name": "Пробежка Берлин", "type": "running", "date": "2023-09-27", "datetime": "2023-09-27 07:52:00", "lat": 52.523151505804705, "lon": 13.400787202772845, "distance_km": 3.75, "duration_min": 56.5}, {"activityId": 1053, "name": "Пробежка Рим", "type": "running", "date": "2023-09-29", "datetime": "2023-09-29 07:53:00", "lat": 41.88540459230038, "lon": 12.481371784353374, "distance_km": 4.85, "duration_min": 98.0}, {"activityId": 1054, "name": "Пробежка Берлин", "type": "running", "date": "2023-10-07", "datetime": "2023-10-07 07:54:00", "lat": 52.53496865666862, "lon": 13.430545829354173, "distance_km": 7.26, "duration_min": 36.3}, {"activityId": 1055, "name": "Пробежка Москва", "type": "trail_running", "date": "2023-10-11", "datetime": "2023-10-11 07:55:00", "lat": 55.7786849722798, "lon": 37.58878718171389, "distance_km": 16.26, "duration_min": 53.2}, {"activityId": 1056, "name": "Пробежка Санкт-Петербург", "type": "running", "date": "2023-10-19", "datetime": "2023-10-19 07:56:00", "lat": 59.920308342575666, "lon": 30.35234247054813, "distance_km": 4.95, "duration_min": 107.2}, {"activityId": 1057, "name": "Пробежка Санкт-Петербург", "type": "running", "date": "2023-10-28", "datetime": "2023-10-28 07:57:00", "lat": 59.91627436980155, "lon": 30.36020711407377, "distance_km": 9.29, "duration_min": 102.1}, {"activityId": 1058, "name": "Пробежка Санкт-Петербург", "type": "running", "date": "2023-11-02", "datetime": "2023-11-02 07:58:00", "lat": 59.90571986608209, "lon": 30.316687787299664, "distance_km": 8.91, "duration_min": 106.4}, {"activityId": 1059, "name": "Пробежка Рим", "type": "running", "date": "2023-11-08", "datetime": "2023-11-08 07:00:00", "lat": 41.91128890431646, "lon": 12.490380703061604, "distance_km": 20.66, "duration_min": 73.6}, {"activityId": 1060, "name": "Пробежка Москва", "type": "trail_running", "date": "2023-11-10", "datetime": "2023-11-10 07:01:00", "lat": 55.77842230469454, "lon": 37.60297291178341, "distance_km": 13.45, "duration_min": 118.4}, {"activityId": 1061, "name": "Пробежка Москва", "type": "running", "date": "2023-11-12", "datetime": "2023-11-12 07:02:00", "lat": 55.76159427529927, "lon": 37.60804122670079, "distance_km": 17.16, "duration_min": 63.6}, {"activityId": 1062, "name": "Пробежка Париж", "type": "running", "date": "2023-11-15", "datetime": "2023-11-15 07:03:00", "lat": 48.88057028397467, "lon": 2.3336047264701376, "distance_km": 3.8, "duration_min": 63.6}, {"activityId": 1063, "name": "Пробежка Рим", "type": "running", "date": "2023-11-20", "datetime": "2023-11-20 07:04:00", "lat": 41.898677843977495, "lon": 12.523332469158278, "distance_km": 19.57, "duration_min": 82.3}, {"activityId": 1064, "name": "Пробежка Рим", "type": "running", "date": "2023-11-23", "datetime": "2023-11-23 07:05:00", "lat": 41.90322735024211, "lon": 12.506413574246343, "distance_km": 8.87, "duration_min": 89.7}, {"activityId": 1065, "name": "Пробежка Санкт-Петербург", "type": "trail_running", "date": "2023-11-27", "datetime": "2023-11-27 07:06:00", "lat": 59.92952678002637, "lon": 30.361521820243812, "distance_km": 15.19, "duration_min": 110.3}, {"activityId": 1066, "name": "Пробежка Москва", "type": "running", "date": "2023-12-03", "datetime": "2023-12-03 07:07:00", "lat": 55.750164510125494, "lon": 37.63732351015825, "distance_km": 8.47, "duration_min": 41.0}, {"activityId": 1067, "name": "Пробежка Париж", "type": "running", "date": "2023-12-10", "datetime": "2023-12-10 07:08:00", "lat": 48.85310716101028, "lon": 2.3627376339914057, "distance_km": 12.2, "duration_min": 99.4}, {"activityId": 1068, "name": "Пробежка Москва", "type": "running", "date": "2023-12-14", "datetime": "2023-12-14 07:09:00", "lat": 55.742827184299585, "lon": 37.6271312301783, "distance_km": 14.15, "duration_min": 29.3}, {"activityId": 1069, "name": "Пробежка Рим", "type": "running", "date": "2023-12-19", "datetime": "2023-12-19 07:10:00", "lat": 41.88627843995984, "lon": 12.478347795963595, "distance_km": 3.44, "duration_min": 44.5}, {"activityId": 1070, "name": "Пробежка Берлин", "type": "trail_running", "date": "2023-12-28", "datetime": "2023-12-28 07:11:00", "lat": 52.54098426167749, "lon": 13.379369693751073, "distance_km": 10.46, "duration_min": 83.0}, {"activityId": 1071, "name": "Пробежка Париж", "type": "running", "date": "2024-01-02", "datetime": "2024-01-02 07:12:00", "lat": 48.85626263014063, "lon": 2.336839066374706, "distance_km": 14.81, "duration_min": 20.6}, {"activityId": 1072, "name": "Пробежка Париж", "type": "running", "date": "2024-01-05", "datetime": "2024-01-05 07:13:00", "lat": 48.83973046820874, "lon": 2.3704465913703885, "distance_km": 15.53, "duration_min": 66.5}, {"activityId": 1073, "name": "Пробежка Москва", "type": "running", "date": "2024-01-10", "datetime": "2024-01-10 07:14:00", "lat": 55.75318770952821, "lon": 37.63538499610333, "distance_km": 15.02, "duration_min": 118.8}, {"activityId": 1074, "name": "Пробежка Париж", "type": "running", "date": "2024-01-17", "datetime": "2024-01-17 07:15:00", "lat": 48.863359139365706, "lon": 2.365356437676558, "distance_km": 12.09, "duration_min": 103.1}, {"activityId": 1075, "name": "Пробежка Санкт-Петербург", "type": "trail_running", "date": "2024-01-26", "datetime": "2024-01-26 07:16:00", "lat": 59.94891932652958, "lon": 30.333580466209384, "distance_km": 7.67, "duration_min": 44.7}, {"activityId": 1076, "name": "Пробежка Берлин", "type": "running", "date": "2024-02-01", "datetime": "2024-02-01 07:17:00", "lat": 52.51907582102422, "lon": 13.389354751828877, "distance_km": 10.92, "duration_min": 91.4}, {"activityId": 1077, "name": "Пробежка Москва", "type": "running", "date": "2024-02-06", "datetime": "2024-02-06 07:18:00", "lat": 55.74210290642493, "lon": 37.60648257410513, "distance_km": 12.72, "duration_min": 33.8}, {"activityId": 1078, "name": "Пробежка Париж", "type": "running", "date": "2024-02-11", "datetime": "2024-02-11 07:19:00", "lat": 48.86823698873794, "lon": 2.364585148501673, "distance_km": 4.16, "duration_min": 60.8}, {"activityId": 1079, "name": "Пробежка Париж", "type": "running", "date": "2024-02-20", "datetime": "2024-02-20 07:20:00", "lat": 48.83033594263502, "lon": 2.372173470160429, "distance_km": 10.01, "duration_min": 97.0}, {"activityId": 1080, "name": "Пробежка Берлин", "type": "trail_running", "date": "2024-02-22", "datetime": "2024-02-22 07:21:00", "lat": 52.512822861735664, "lon": 13.375353765015038, "distance_km": 9.33, "duration_min": 95.3}, {"activityId": 1081, "name": "Пробежка Берлин", "type": "running", "date": "2024-03-01", "datetime": "2024-03-01 07:22:00", "lat": 52.53485094013869, "lon": 13.40776793858403, "distance_km": 13.86, "duration_min": 42.1}, {"activityId": 1082, "name": "Пробежка Рим", "type": "running", "date": "2024-03-06", "datetime": "2024-03-06 07:23:00", "lat": 41.8989501585628, "lon": 12.468141489196803, "distance_km": 9.05, "duration_min": 87.9}, {"activityId": 1083, "name": "Пробежка Санкт-Петербург", "type": "running", "date": "2024-03-14", "datetime": "2024-03-14 07:24:00", "lat": 59.95473033978375, "lon": 30.36027249724014, "distance_km": 20.65, "duration_min": 73.4}, {"activityId": 1084, "name": "Пробежка Берлин", "type": "running", "date": "2024-03-22", "datetime": "2024-03-22 07:25:00", "lat": 52.52386351898149, "lon": 13.376626122780419, "distance_km": 14.57, "duration_min": 33.6}, {"activityId": 1085, "name": "Пробежка Санкт-Петербург", "type": "trail_running", "date": "2024-03-31", "datetime": "2024-03-31 07:26:00", "lat": 59.90731707800932, "lon": 30.32784623185129, "distance_km": 6.81, "duration_min": 52.7}, {"activityId": 1086, "name": "Пробежка Рим", "type": "running", "date": "2024-04-08", "datetime": "2024-04-08 07:27:00", "lat": 41.917920589413285, "lon": 12.516315457109316, "distance_km": 7.54, "duration_min": 28.2}, {"activityId": 1087, "name": "Пробежка Берлин", "type": "running", "date": "2024-04-10", "datetime": "2024-04-10 07:28:00", "lat": 52.4931251364946, "lon": 13.432115181542915, "distance_km": 7.04, "duration_min": 26.9}, {"activityId": 1088, "name": "Пробежка Москва", "type": "running", "date": "2024-04-12", "datetime": "2024-04-12 07:29:00", "lat": 55.77105399224357, "lon": 37.64427670396296, "distance_km": 6.59, "duration_min": 22.0}, {"activityId": 1089, "name": "Пробежка Санкт-Петербург", "type": "running", "date": "2024-04-16", "datetime": "2024-04-16 07:30:00", "lat": 59.911873258492456, "lon": 30.345267530677194, "distance_km": 13.15, "duration_min": 41.8}, {"activityId": 1090, "name": "Пробежка Рим", "type": "trail_running", "date": "2024-04-22", "datetime": "2024-04-22 07:31:00", "lat": 41.88286734860207, "lon": 12.502834849633455, "distance_km": 16.46, "duration_min": 31.5}, {"activityId": 1091, "name": "Пробежка Рим", "type": "running", "date": "2024-04-26", "datetime": "2024-04-26 07:32:00", "lat": 41.879285924979456, "lon": 12.467940705529848, "distance_km": 8.62, "duration_min": 87.7}, {"activityId": 1092, "name": "Пробежка Париж", "type": "running", "date": "2024-05-04", "datetime": "2024-05-04 07:33:00", "lat": 48.88308823591248, "lon": 2.3340997866255027, "distance_km": 13.66, "duration_min": 103.1}, {"activityId": 1093, "name": "Пробежка Москва", "type": "running", "date": "2024-05-09", "datetime": "2024-05-09 07:34:00", "lat": 55.76763158014975, "lon": 37.605394961129264, "distance_km": 15.32, "duration_min": 100.6}, {"activityId": 1094, "name": "Пробежка Рим", "type": "running", "date": "2024-05-11", "datetime": "2024-05-11 07:35:00", "lat": 41.90476471471863, "lon": 12.506091280441241, "distance_km": 4.24, "duration_min": 84.8}, {"activityId": 1095, "name": "Пробежка Париж", "type": "trail_running", "date": "2024-05-13", "datetime": "2024-05-13 07:36:00", "lat": 48.875939855085406, "lon": 2.3285323322386398, "distance_km": 20.29, "duration_min": 83.6}, {"activityId": 1096, "name": "Пробежка Санкт-Петербург", "type": "running", "date": "2024-05-22", "datetime": "2024-05-22 07:37:00", "lat": 59.93042922870046, "lon": 30.349127718240805, "distance_km": 20.38, "duration_min": 47.0}, {"activityId": 1097, "name": "Пробежка Париж", "type": "running", "date": "2024-05-31", "datetime": "2024-05-31 07:38:00", "lat": 48.852734469580234, "lon": 2.366061572858307, "distance_km": 7.83, "duration_min": 105.2}, {"activityId": 1098, "name": "Пробежка Рим", "type": "running", "date": "2024-06-03", "datetime": "2024-06-03 07:39:00", "lat": 41.925697871040164, "lon": 12.481031806351456, "distance_km": 11.36, "duration_min": 81.0}, {"activityId": 1099, "name": "Пробежка Москва", "type": "running", "date": "2024-06-11", "datetime": "2024-06-11 07:40:00", "lat": 55.74598379719348, "lon": 37.61695839021696, "distance_km": 8.85, "duration_min": 68.8}, {"activityId": 1100, "name": "Пробежка Рим", "type": "trail_running", "date": "2024-06-18", "datetime": "2024-06-18 07:41:00", "lat": 41.893220330589855, "lon": 12.519219198785493, "distance_km": 15.62, "duration_min": 47.6}, {"activityId": 1101, "name": "Пробежка Берлин", "type": "running", "date": "2024-06-20", "datetime": "2024-06-20 07:42:00", "lat": 52.546883754666624, "lon": 13.38013677771748, "distance_km": 15.96, "duration_min": 68.9}, {"activityId": 1102, "name": "Пробежка Париж", "type": "running", "date": "2024-06-25", "datetime": "2024-06-25 07:43:00", "lat": 48.86535417398446, "lon": 2.351649280104715, "distance_km": 17.27, "duration_min": 29.3}, {"activityId": 1103, "name": "Пробежка Париж", "type": "running", "date": "2024-06-30", "datetime": "2024-06-30 07:44:00", "lat": 48.868107229317715, "lon": 2.3405723618078054, "distance_km": 13.47, "duration_min": 67.3}, {"activityId": 1104, "name": "Пробежка Париж", "type": "running", "date": "2024-07-07", "datetime": "2024-07-07 07:45:00", "lat": 48.88639788783756, "lon": 2.3552233083654004, "distance_km": 9.33, "duration_min": 65.4}, {"activityId": 1105, "name": "Пробежка Рим", "type": "trail_running", "date": "2024-07-13", "datetime": "2024-07-13 07:46:00", "lat": 41.88663228247791, "lon": 12.509677059879564, "distance_km": 8.68, "duration_min": 94.3}, {"activityId": 1106, "name": "Пробежка Санкт-Петербург", "type": "running", "date": "2024-07-17", "datetime": "2024-07-17 07:47:00", "lat": 59.917283078392714, "lon": 30.334151915232763, "distance_km": 16.04, "duration_min": 117.7}, {"activityId": 1107, "name": "Пробежка Москва", "type": "running", "date": "2024-07-23", "datetime": "2024-07-23 07:48:00", "lat": 55.77575770179963, "lon": 37.60507478779591, "distance_km": 9.5, "duration_min": 50.2}, {"activityId": 1108, "name": "Пробежка Рим", "type": "running", "date": "2024-07-27", "datetime": "2024-07-27 07:49:00", "lat": 41.875530942058994, "lon": 12.469671561214339, "distance_km": 8.26, "duration_min": 114.4}, {"activityId": 1109, "name": "Пробежка Москва", "type": "running", "date": "2024-08-05", "datetime": "2024-08-05 07:50:00", "lat": 55.77816318409991, "lon": 37.62174385317758, "distance_km": 11.45, "duration_min": 64.0}, {"activityId": 1110, "name": "Пробежка Москва", "type": "trail_running", "date": "2024-08-09", "datetime": "2024-08-09 07:51:00", "lat": 55.7837298585883, "lon": 37.60244870342958, "distance_km": 18.51, "duration_min": 31.4}, {"activityId": 1111, "name": "Пробежка Париж", "type": "running", "date": "2024-08-12", "datetime": "2024-08-12 07:52:00", "lat": 48.85610479361746, "lon": 2.356821269388249, "distance_km": 15.36, "duration_min": 35.2}, {"activityId": 1112, "name": "Пробежка Москва", "type": "running", "date": "2024-08-18", "datetime": "2024-08-18 07:53:00", "lat": 55.785435087362615, "lon": 37.59440709373269, "distance_km": 16.76, "duration_min": 80.6}, {"activityId": 1113, "name": "Пробежка Берлин", "type": "running", "date": "2024-08-23", "datetime": "2024-08-23 07:54:00", "lat": 52.5128226815688, "lon": 13.429510262657427, "distance_km": 8.35, "duration_min": 78.9}, {"activityId": 1114, "name": "Пробежка Рим", "type": "running", "date": "2024-08-31", "datetime": "2024-08-31 07:55:00", "lat": 41.906917768237456, "lon": 12.470013818262352, "distance_km": 20.28, "duration_min": 29.9}, {"activityId": 1115, "name": "Пробежка Санкт-Петербург", "type": "trail_running", "date": "2024-09-05", "datetime": "2024-09-05 07:56:00", "lat": 59.9201787675174, "lon": 30.30997124792802, "distance_km": 7.32, "duration_min": 75.2}, {"activityId": 1116, "name": "Пробежка Москва", "type": "running", "date": "2024-09-09", "datetime": "2024-09-09 07:57:00", "lat": 55.7503110543596, "lon": 37.62866226814709, "distance_km": 11.46, "duration_min": 23.3}, {"activityId": 1117, "name": "Пробежка Рим", "type": "running", "date": "2024-09-15", "datetime": "2024-09-15 07:58:00", "lat": 41.91497925348562, "lon": 12.493641879584422, "distance_km": 15.37, "duration_min": 112.4}, {"activityId": 1118, "name": "Пробежка Париж", "type": "running", "date": "2024-09-20", "datetime": "2024-09-20 07:00:00", "lat": 48.833486578147664, "lon": 2.335688567015961, "distance_km": 5.68, "duration_min": 46.6}, {"activityId": 1119, "name": "Пробежка Москва", "type": "running", "date": "2024-09-24", "datetime": "2024-09-24 07:01:00", "lat": 55.72937828237083, "lon": 37.63485771397394, "distance_km": 13.71, "duration_min": 102.4}, {"activityId": 1120, "name": "Пробежка Париж", "type": "trail_running", "date": "2024-09-30", "datetime": "2024-09-30 07:02:00", "lat": 48.83406121949048, "lon": 2.3635206794727255, "distance_km": 15.6, "duration_min": 114.3}, {"activityId": 1121, "name": "Пробежка Москва", "type": "running", "date": "2024-10-09", "datetime": "2024-10-09 07:03:00", "lat": 55.752065531814296, "lon": 37.623182199722464, "distance_km": 19.01, "duration_min": 93.5}, {"activityId": 1122, "name": "Пробежка Москва", "type": "running", "date": "2024-10-15", "datetime": "2024-10-15 07:04:00", "lat": 55.73127961319786, "lon": 37.64501466613157, "distance_km": 18.05, "duration_min": 77.5}, {"activityId": 1123, "name": "Пробежка Рим", "type": "running", "date": "2024-10-17", "datetime": "2024-10-17 07:05:00", "lat": 41.90737481907616, "lon": 12.512186540250301, "distance_km": 6.15, "duration_min": 71.9}, {"activityId": 1124, "name": "Пробежка Рим", "type": "running", "date": "2024-10-26", "datetime": "2024-10-26 07:06:00", "lat": 41.883689348833386, "lon": 12.501519777516672, "distance_km": 14.43, "duration_min": 69.2}, {"activityId": 1125, "name": "Пробежка Париж", "type": "trail_running", "date": "2024-10-29", "datetime": "2024-10-29 07:07:00", "lat": 48.84747766337768, "lon": 2.3421985036199056, "distance_km": 15.06, "duration_min": 105.8}, {"activityId": 1126, "name": "Пробежка Париж", "type": "running", "date": "2024-11-05", "datetime": "2024-11-05 07:08:00", "lat": 48.86822042043901, "lon": 2.339493067721687, "distance_km": 20.01, "duration_min": 101.4}, {"activityId": 1127, "name": "Пробежка Париж", "type": "running", "date": "2024-11-07", "datetime": "2024-11-07 07:09:00", "lat": 48.831883587566544, "lon": 2.3373439310565325, "distance_km": 5.09, "duration_min": 97.3}, {"activityId": 1128, "name": "Пробежка Берлин", "type": "running", "date": "2024-11-09", "datetime": "2024-11-09 07:10:00", "lat": 52.51771858069893, "lon": 13.378252245122603, "distance_km": 12.33, "duration_min": 82.3}, {"activityId": 1129, "name": "Пробежка Париж", "type": "running", "date": "2024-11-18", "datetime": "2024-11-18 07:11:00", "lat": 48.87219943216366, "lon": 2.334413494301016, "distance_km": 12.89, "duration_min": 112.8}, {"activityId": 1130, "name": "Пробежка Париж", "type": "trail_running", "date": "2024-11-27", "datetime": "2024-11-27 07:12:00", "lat": 48.83388556500176, "lon": 2.3805888089493017, "distance_km": 13.96, "duration_min": 43.9}, {"activityId": 1131, "name": "Пробежка Рим", "type": "running", "date": "2024-12-01", "datetime": "2024-12-01 07:13:00", "lat": 41.90585034042016, "lon": 12.499535084543224, "distance_km": 4.68, "duration_min": 119.2}, {"activityId": 1132, "name": "Пробежка Москва", "type": "running", "date": "2024-12-04", "datetime": "2024-12-04 07:14:00", "lat": 55.75348687365073, "lon": 37.59434796894537, "distance_km": 17.98, "duration_min": 69.8}, {"activityId": 1133, "name": "Пробежка Берлин", "type": "running", "date": "2024-12-10", "datetime": "2024-12-10 07:15:00", "lat": 52.53232469779555, "lon": 13.39992942057612, "distance_km": 11.68, "duration_min": 67.2}, {"activityId": 1134, "name": "Пробежка Берлин", "type": "running", "date": "2024-12-19", "datetime": "2024-12-19 07:16:00", "lat": 52.49867851810914, "lon": 13.386436622256875, "distance_km": 13.79, "duration_min": 94.6}, {"activityId": 1135, "name": "Пробежка Москва", "type": "trail_running", "date": "2024-12-23", "datetime": "2024-12-23 07:17:00", "lat": 55.742374844169326, "lon": 37.634700370920186, "distance_km": 10.47, "duration_min": 113.4}, {"activityId": 1136, "name": "Пробежка Москва", "type": "running", "date": "2024-12-29", "datetime": "2024-12-29 07:18:00", "lat": 55.74277033899697, "lon": 37.605213350986304, "distance_km": 13.56, "duration_min": 119.9}, {"activityId": 1137, "name": "Пробежка Санкт-Петербург", "type": "running", "date": "2025-01-07", "datetime": "2025-01-07 07:19:00", "lat": 59.93109284358259, "lon": 30.334160483133104, "distance_km": 8.98, "duration_min": 96.3}, {"activityId": 1138, "name": "Пробежка Париж", "type": "running", "date": "2025-01-15", "datetime": "2025-01-15 07:20:00", "lat": 48.882571135342914, "lon": 2.374376100994044, "distance_km": 20.65, "duration_min": 43.9}, {"activityId": 1139, "name": "Пробежка Санкт-Петербург", "type": "running", "date": "2025-01-23", "datetime": "2025-01-23 07:21:00", "lat": 59.95566077855924, "lon": 30.329746505732974, "distance_km": 8.73, "duration_min": 67.3}];
+const N = RUNS.length;
+const ACCENT = '#ff5a36';
+const ACCENT_HI = '#ff8b62';
+const FOLLOW_ZOOM = 13;
+const FAR_METERS = 25000;
+const BURST_MS = 700;
+const TILE_URL = (z, x, y) => {
+  const sub = 'abcd'[(x + y) % 4];
+  return `https://${sub}.basemaps.cartocdn.com/dark_all/${z}/${x}/${y}.png`;
+};
+
+const PTS = RUNS.map(r => L.latLng(r.lat, r.lon));
+const CUM_KM = []; { let s = 0; for (const r of RUNS) { s += (r.distance_km || 0); CUM_KM.push(s); } }
+
+// ------------------------------------------------------------------ утилиты
+const $ = id => document.getElementById(id);
+const lerp = (a, b, t) => a + (b - a) * t;
+const lerpLL = (a, b, t) => L.latLng(lerp(a.lat, b.lat, t), lerp(a.lng, b.lng, t));
+const easeInOut = t => t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+const clamp01 = t => Math.max(0, Math.min(1, t));
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  }[c]));
+}
+
+// ------------------------------------------------------------------ карта (Leaflet — для пауз и интерактива)
+const map = L.map('map', {
+  zoomControl: true, attributionControl: true,
+  zoomSnap: 0, zoomAnimation: false, markerZoomAnimation: false, fadeAnimation: false
+});
+// crossOrigin — чтобы тайлы Leaflet и тайлы canvas-движка делили один HTTP-кэш
+L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png', {
+  maxZoom: 20, attribution: '&copy; OpenStreetMap &copy; CARTO',
+  keepBuffer: 6, crossOrigin: 'anonymous'
+}).addTo(map);
+
+const bounds = L.latLngBounds(PTS);
+map.fitBounds(bounds.pad(0.2));
+
+const paint = L.canvas({ padding: 0.5 });
+const trailGlow = L.polyline([], { renderer: paint, color: ACCENT, weight: 11, opacity: 0.14, interactive: false, lineJoin: 'round' }).addTo(map);
+const trail     = L.polyline([], { renderer: paint, color: ACCENT_HI, weight: 4, opacity: 0.8, interactive: false, lineJoin: 'round', lineCap: 'round' }).addTo(map);
+const dotsLayer = L.layerGroup().addTo(map);
+
+const headIcon = L.divIcon({
+  className: 'head-marker', html: '<div class="core"></div>', iconSize: [0, 0]
+});
+const headMarker = L.marker([0, 0], { icon: headIcon, interactive: false, zIndexOffset: 1000 });
+
+const burstIcon = L.divIcon({
+  className: 'burst', html: '<div class="ring"></div><div class="ring r2"></div>', iconSize: [0, 0]
+});
+function spawnBurst(ll) {
+  const m = L.marker(ll, { icon: burstIcon, interactive: false, zIndexOffset: 900 }).addTo(map);
+  setTimeout(() => map.removeLayer(m), BURST_MS + 350);
+}
+
+// ------------------------------------------------------------------ DOM
+const slider = $('slider'), playBtn = $('playBtn'), resetBtn = $('resetBtn');
+const speedSelect = $('speed'), followCam = $('followCam'), videoBtn = $('videoBtn');
+const shownCountEl = $('shownCount'), currentDateEl = $('currentDate');
+const currentNameEl = $('currentName'), cumKmEl = $('cumKm'), counterEl = $('counter');
+const liveCanvas = $('liveCanvas');
+const exportOverlay = $('exportOverlay'), exportPct = $('exportPct');
+const exportBarFill = $('exportBarFill'), exportStatus = $('exportStatus');
+const exportCancel = $('exportCancel');
+const exportSettings = $('exportSettings'), exportProgress = $('exportProgress');
+const exportStart = $('exportStart'), exportClose = $('exportClose');
+
+const delayMs = () => parseInt(speedSelect.value, 10);
+const isFar = i => i > 0 && PTS[i - 1].distanceTo(PTS[i]) > FAR_METERS;
+const stepDur = i => i === 0 ? 1200 : (isFar(i) ? Math.max(800, delayMs()) : delayMs());
+
+// ------------------------------------------------------------------ Leaflet-состояние (пауза/перемотка/статичная камера)
+let placed = 0;
+const committedLL = [];
+const dotMarkers = [];
+let playing = false;
+let anim = null;          // Leaflet-путь (камера выключена)
+let finaleRaf = 0;
+
+function makeDot(r) {
+  return L.circleMarker([r.lat, r.lon], {
+    renderer: paint, radius: 4, color: ACCENT, weight: 1,
+    fillColor: ACCENT, fillOpacity: 0.6
+  }).bindPopup(`<b>${r.date}</b><br>${escapeHtml(r.name || '')}<br>${r.distance_km ?? '?'} км`);
+}
+
+function setHudFor(i) {
+  currentDateEl.classList.remove('period');
+  if (i >= 0) {
+    currentDateEl.textContent = RUNS[i].date;
+    currentNameEl.textContent = RUNS[i].name || '';
+    cumKmEl.textContent = CUM_KM[i].toFixed(1);
+  } else {
+    currentDateEl.textContent = '—';
+    currentNameEl.textContent = '2023-01-08 — 2025-01-23';
+    cumKmEl.textContent = '0';
+  }
+}
+
+// Финальный кадр: вместо даты последней пробежки — весь период
+function setHudPeriod() {
+  currentDateEl.textContent = '2023-01-08 — 2025-01-23';
+  currentDateEl.classList.add('period');
+  currentNameEl.textContent = `вся история · ${N} пробежек`;
+  cumKmEl.textContent = CUM_KM[N - 1].toFixed(1);
+}
+
+function syncCounters() {
+  shownCountEl.textContent = placed;
+  counterEl.textContent = placed + ' / ' + N;
+  slider.value = placed;
+}
+
+function setTrail(extraHead) {
+  const lls = extraHead ? committedLL.concat([extraHead]) : committedLL;
+  trailGlow.setLatLngs(lls);
+  trail.setLatLngs(lls);
+}
+
+function stopFinale() { if (finaleRaf) { cancelAnimationFrame(finaleRaf); finaleRaf = 0; } }
+
+function cancelAnim() {
+  if (anim && anim.raf) cancelAnimationFrame(anim.raf);
+  anim = null;
+  stopFinale();
+}
+
+function render(n) {
+  n = Math.max(0, Math.min(N, n));
+  cancelAnim();
+  hideLiveCanvas();
+  while (placed < n) {
+    committedLL.push(PTS[placed]);
+    const m = makeDot(RUNS[placed]); m.addTo(dotsLayer); dotMarkers.push(m);
+    placed++;
+  }
+  while (placed > n) {
+    committedLL.pop();
+    dotsLayer.removeLayer(dotMarkers.pop());
+    placed--;
+  }
+  setTrail(null);
+  if (placed > 0) {
+    headMarker.setLatLng(PTS[placed - 1]);
+    if (!map.hasLayer(headMarker)) headMarker.addTo(map);
+  } else if (map.hasLayer(headMarker)) map.removeLayer(headMarker);
+  if (placed >= N) setHudPeriod(); else setHudFor(placed - 1);
+  syncCounters();
+}
+
+// ------------------------------------------------------------------ камера/геометрия
+function camApply(c, z) { map.setView(c, z, { animate: false }); }
+
+function makeArc(from, to) {
+  const meters = from.distanceTo(to);
+  if (meters < FAR_METERS) return 0;
+  return Math.max(1.5, Math.min(8, Math.log2(meters / 3000)));
+}
+
+function project(lat, lng, z) {
+  const n = 256 * Math.pow(2, z);
+  const x = (lng + 180) / 360 * n;
+  const latR = lat * Math.PI / 180;
+  const y = (1 - Math.log(Math.tan(latR) + 1 / Math.cos(latR)) / Math.PI) / 2 * n;
+  return [x, y];
+}
+
+function fitZoom(b, w, h, pad) {
+  for (let z = 17; z >= 2; z -= 0.25) {
+    const [x1, y1] = project(b.getNorth(), b.getWest(), z);
+    const [x2, y2] = project(b.getSouth(), b.getEast(), z);
+    if (Math.abs(x2 - x1) <= w - 2 * pad && Math.abs(y2 - y1) <= h - 2 * pad) return z;
+  }
+  return 2;
+}
+
+// ------------------------------------------------------------------ таймлайн (общий для канваса и видео)
+function buildPhases(W, H) {
+  const ovZ = fitZoom(bounds.pad(0.15), W, H, Math.round(H * 0.08));
+  const ovC = bounds.getCenter();
+  const phases = [];
+  const arrivals = new Array(N).fill(Infinity);
+  let acc = 0;
+  const push = ph => { ph.t0 = acc; acc += ph.dur; phases.push(ph); };
+
+  push({ kind: 'hold', dur: 600, cam: () => [ovC, ovZ], aFloat: 0 });
+  push({
+    kind: 'step', i: 0, dur: 1200,
+    cam: t => [lerpLL(ovC, PTS[0], easeInOut(t)), lerp(ovZ, FOLLOW_ZOOM, easeInOut(t))]
+  });
+  arrivals[0] = acc;
+  for (let i = 1; i < N; i++) {
+    const far = isFar(i), dur = stepDur(i);
+    const from = PTS[i - 1], to = PTS[i];
+    const arc = far ? makeArc(from, to) : 0;
+    push({
+      kind: 'step', i, dur, far,
+      cam: t => {
+        const e = far ? easeInOut(t) : t;
+        return [lerpLL(from, to, e), FOLLOW_ZOOM - arc * Math.sin(Math.PI * t)];
+      }
+    });
+    arrivals[i] = acc;
+  }
+  const last = PTS[N - 1];
+  push({
+    kind: 'finale', dur: 2000,
+    cam: t => [lerpLL(last, ovC, easeInOut(t)), lerp(FOLLOW_ZOOM, ovZ, easeInOut(t))]
+  });
+  push({ kind: 'hold', dur: 1400, cam: () => [ovC, ovZ], aFloat: N });
+  return { phases, arrivals, totalMs: acc };
+}
+
+function stateAt(phases, elapsed) {
+  let ph = phases[phases.length - 1], tLoc = 1;
+  for (const p of phases) {
+    if (elapsed < p.t0 + p.dur) { ph = p; tLoc = (elapsed - p.t0) / p.dur; break; }
+  }
+  tLoc = clamp01(tLoc);
+  let aFloat, head, curIdx;
+  if (ph.kind === 'hold') {
+    aFloat = ph.aFloat; head = ph.aFloat >= N ? PTS[N - 1] : null; curIdx = ph.aFloat - 1;
+  } else if (ph.kind === 'finale') {
+    aFloat = N; head = PTS[N - 1]; curIdx = N - 1;
+  } else if (ph.i === 0) {
+    aFloat = tLoc; head = PTS[0]; curIdx = 0;
+  } else {
+    const e = ph.far ? easeInOut(tLoc) : tLoc;
+    aFloat = ph.i + tLoc;
+    head = lerpLL(PTS[ph.i - 1], PTS[ph.i], e);
+    curIdx = ph.i;
+  }
+  const final = ph.kind === 'finale' || (ph.kind === 'hold' && ph.aFloat >= N);
+  return { cam: ph.cam(tLoc), aFloat, head, curIdx, final };
+}
+
+function timeForAFloat(phases, arrivals, a) {
+  if (a <= 0) return 0;
+  if (a >= N) return arrivals[N - 1];
+  const i = Math.floor(a), frac = a - i;
+  for (const ph of phases) {
+    if (ph.kind === 'step' && ph.i === i) return ph.t0 + frac * ph.dur;
+  }
+  return i > 0 ? arrivals[i - 1] : 0;
+}
+
+// ------------------------------------------------------------------ кэш тайлов (общий, в памяти)
+const tileCache = new Map();   // "z/x/y" -> Image (загруженные с crossOrigin)
+
+function collectTiles(phases, W, H) {
+  const keys = new Set();
+  for (const ph of phases) {
+    const samples = Math.max(6, Math.ceil(ph.dur / 150));
+    for (let s = 0; s <= samples; s++) {
+      const [c, zf] = ph.cam(s / samples);
+      const z = Math.round(zf);
+      const [cx, cy] = project(c.lat, c.lng, z);
+      const n = Math.pow(2, z);
+      const x0 = Math.floor((cx - W / 2) / 256) - 1, x1 = Math.floor((cx + W / 2) / 256) + 1;
+      const y0 = Math.floor((cy - H / 2) / 256) - 1, y1 = Math.floor((cy + H / 2) / 256) + 1;
+      for (let x = x0; x <= x1; x++)
+        for (let y = y0; y <= y1; y++)
+          if (x >= 0 && y >= 0 && x < n && y < n) keys.add(z + '/' + x + '/' + y);
+    }
+  }
+  return [...keys];
+}
+
+let tilesAborted = false;
+function loadTiles(keys, onProgress) {
+  keys = keys.filter(k => !tileCache.has(k));
+  return new Promise(resolve => {
+    let done = 0, idx = 0, finished = false;
+    const total = keys.length;
+    const fin = () => { if (!finished) { finished = true; resolve(); } };
+    if (!total) { fin(); return; }
+    const CONC = 16;
+    const next = () => {
+      if (finished || tilesAborted) { fin(); return; }
+      if (idx >= total) { if (done >= total) fin(); return; }
+      const key = keys[idx++];
+      const [z, x, y] = key.split('/').map(Number);
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      const step = ok => () => {
+        if (ok) tileCache.set(key, img);
+        done++; onProgress && onProgress(done, total);
+        done >= total ? fin() : next();
+      };
+      img.onload = step(true); img.onerror = step(false);
+      img.src = TILE_URL(z, x, y);
+    };
+    for (let k = 0; k < CONC; k++) next();
+  });
+}
+
+// ------------------------------------------------------------------ отрисовка кадра (канвас: живое проигрывание и видео)
+function drawFrame(ctx, W, H, cam, aFloat, head, tlMs, curIdx, arrivals, withHud, finalHud) {
+  const [c, zf] = cam;
+  ctx.fillStyle = '#0b0e14';
+  ctx.fillRect(0, 0, W, H);
+
+  const z = Math.round(zf);
+  const scale = Math.pow(2, zf - z);
+  const [cx, cy] = project(c.lat, c.lng, z);
+  const originX = cx * scale - W / 2, originY = cy * scale - H / 2;
+  const ts = 256 * scale;
+  const x0 = Math.floor(originX / ts), x1 = Math.floor((originX + W) / ts);
+  const y0 = Math.floor(originY / ts), y1 = Math.floor((originY + H) / ts);
+  ctx.imageSmoothingEnabled = true;
+
+  for (let x = x0; x <= x1; x++)
+    for (let y = y0; y <= y1; y++) {
+      let img = tileCache.get(z + '/' + x + '/' + y);
+      if (img) {
+        ctx.drawImage(img, x * ts - originX, y * ts - originY, ts + 0.6, ts + 0.6);
+        continue;
+      }
+      // запасной вариант: родительский тайл (z-1), растянутый — вместо пустоты
+      img = tileCache.get((z - 1) + '/' + (x >> 1) + '/' + (y >> 1));
+      if (img) {
+        const half = 128;
+        ctx.drawImage(img, (x & 1) * half, (y & 1) * half, half, half,
+                      x * ts - originX, y * ts - originY, ts + 0.6, ts + 0.6);
+      }
+    }
+
+  const toScreen = ll => {
+    const [px, py] = project(ll.lat, ll.lng, z);
+    return [px * scale - originX, py * scale - originY];
+  };
+
+  const placedN = Math.min(N, Math.floor(aFloat));
+  const scr = [];
+  for (let i = 0; i < placedN; i++) scr.push(toScreen(PTS[i]));
+  const headScr = head ? toScreen(head) : null;
+
+  const path = scr.slice();
+  if (headScr && aFloat < N) path.push(headScr);
+  if (path.length > 1) {
+    ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+    for (const [w, style] of [[11, 'rgba(255,90,54,0.14)'], [4, 'rgba(255,139,98,0.8)']]) {
+      ctx.beginPath();
+      ctx.moveTo(path[0][0], path[0][1]);
+      for (let k = 1; k < path.length; k++) ctx.lineTo(path[k][0], path[k][1]);
+      ctx.strokeStyle = style; ctx.lineWidth = w;
+      ctx.stroke();
+    }
+  }
+
+  ctx.fillStyle = 'rgba(255,90,54,0.65)';
+  for (let i = 0; i < placedN; i++) {
+    const [sx, sy] = scr[i];
+    if (sx < -10 || sy < -10 || sx > W + 10 || sy > H + 10) continue;
+    ctx.beginPath(); ctx.arc(sx, sy, 4, 0, Math.PI * 2); ctx.fill();
+  }
+
+  for (let i = 0; i < placedN; i++) {
+    const dt = tlMs - arrivals[i];
+    if (dt < 0 || dt > BURST_MS + 160) continue;
+    const [sx, sy] = scr[i];
+    for (const delay of [0, 160]) {
+      const p = (dt - delay) / BURST_MS;
+      if (p < 0 || p > 1) continue;
+      ctx.strokeStyle = `rgba(255,90,54,${(1 - p) * 0.95})`;
+      ctx.lineWidth = 2.5;
+      ctx.beginPath(); ctx.arc(sx, sy, 8 + p * 26, 0, Math.PI * 2); ctx.stroke();
+    }
+  }
+
+  if (headScr) {
+    const [hx, hy] = headScr;
+    ctx.shadowColor = ACCENT; ctx.shadowBlur = 18;
+    ctx.fillStyle = ACCENT;
+    ctx.beginPath(); ctx.arc(hx, hy, 7, 0, Math.PI * 2); ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = '#fff'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(hx, hy, 7, 0, Math.PI * 2); ctx.stroke();
+  }
+
+  if (withHud) {
+    const k = H / 720;
+    ctx.fillStyle = 'rgba(13,16,24,0.75)';
+    roundRect(ctx, 24 * k, 24 * k, 320 * k, 116 * k, 14 * k); ctx.fill();
+    ctx.fillStyle = '#9aa0ad'; ctx.font = `600 ${13 * k}px Segoe UI, Arial`;
+    ctx.fillText('КАРТА ПРОБЕЖЕК', 44 * k, 52 * k);
+    if (finalHud) {
+      // финальный кадр: период всей истории
+      ctx.fillStyle = '#f4f3f1'; ctx.font = `800 ${21 * k}px Segoe UI, Arial`;
+      ctx.fillText('2023-01-08 — 2025-01-23', 44 * k, 88 * k);
+      ctx.fillStyle = '#ff8b62'; ctx.font = `700 ${16 * k}px Segoe UI, Arial`;
+      ctx.fillText(`${N} пробежек · ${CUM_KM[N - 1].toFixed(1)} км`, 44 * k, 122 * k);
+    } else {
+      ctx.fillStyle = '#f4f3f1'; ctx.font = `800 ${34 * k}px Segoe UI, Arial`;
+      ctx.fillText(curIdx >= 0 ? RUNS[curIdx].date : '—', 44 * k, 92 * k);
+      ctx.fillStyle = '#ff8b62'; ctx.font = `700 ${16 * k}px Segoe UI, Arial`;
+      const km = curIdx >= 0 ? CUM_KM[curIdx].toFixed(1) : '0';
+      ctx.fillText(`${Math.min(placedN, N)} / ${N} пробежек · ${km} км`, 44 * k, 122 * k);
+    }
+  }
+}
+
+function roundRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
+// ------------------------------------------------------------------ живое проигрывание на канвасе (камера включена)
+// Тайлы рисуются из памяти (tileCache) — серых квадратов не бывает.
+let live = null;          // {phases, arrivals, totalMs, base, startTs, raf, ctx, W, H, lastAFloat}
+let preloadedForSpeed = null;
+
+function hideLiveCanvas() {
+  liveCanvas.classList.remove('visible');
+  if (live && live.raf) cancelAnimationFrame(live.raf);
+  if (live) live.raf = 0;
+}
+
+async function ensureTilesFor(phases, W, H, label) {
+  const keys = collectTiles(phases, W, H);
+  tilesAborted = false;
+  await loadTiles(keys, (d, t) => {
+    counterEl.textContent = `${label} ${Math.round(d / t * 100)}%`;
+  });
+  syncCounters();
+}
+
+async function startCanvasPlayback(fromAFloat) {
+  const W = liveCanvas.clientWidth || window.innerWidth;
+  const H = liveCanvas.clientHeight || window.innerHeight;
+  const { phases, arrivals, totalMs } = buildPhases(W, H);
+
+  playBtn.disabled = true; videoBtn.disabled = true;
+  await ensureTilesFor(phases, W, H, 'карта');
+  playBtn.disabled = false; videoBtn.disabled = false;
+  if (!playing) return;   // отменили, пока грузилась карта
+
+  liveCanvas.width = W; liveCanvas.height = H;
+  const ctx = liveCanvas.getContext('2d');
+  liveCanvas.classList.add('visible');
+
+  live = {
+    phases, arrivals, totalMs, ctx, W, H,
+    base: timeForAFloat(phases, arrivals, fromAFloat),
+    startTs: performance.now(), raf: 0, lastAFloat: fromAFloat
+  };
+
+  const loop = () => {
+    if (!playing || !live) return;
+    const elapsed = live.base + (performance.now() - live.startTs);
+    const st = stateAt(live.phases, elapsed);
+    live.lastAFloat = st.aFloat;
+    drawFrame(live.ctx, live.W, live.H, st.cam, st.aFloat, st.head, elapsed,
+              st.curIdx, live.arrivals, false);
+
+    // DOM-панели обновляются поверх канваса
+    if (st.final) setHudPeriod(); else setHudFor(st.curIdx);
+    const shown = Math.min(N, Math.floor(st.aFloat));
+    shownCountEl.textContent = shown;
+    counterEl.textContent = shown + ' / ' + N;
+    slider.value = shown;
+
+    if (elapsed >= live.totalMs) {
+      // конец: бесшовно возвращаем Leaflet в том же ракурсе
+      const endCam = stateAt(live.phases, live.totalMs).cam;
+      playing = false;
+      playBtn.textContent = '▶';
+      camApply(endCam[0], endCam[1]);
+      const savedLive = live; live = null;
+      render(N);            // скрывает канвас
+      return;
+    }
+    live.raf = requestAnimationFrame(loop);
+  };
+  live.raf = requestAnimationFrame(loop);
+}
+
+// ------------------------------------------------------------------ Leaflet-проигрывание (камера выключена — статичный вид)
+function commitPoint(i) {
+  committedLL.push(PTS[i]);
+  const m = makeDot(RUNS[i]); m.addTo(dotsLayer); dotMarkers.push(m);
+  placed = i + 1;
+  setTrail(null);
+  spawnBurst(PTS[i]);
+  syncCounters();
+}
+
+function runStep(i, resumeElapsed) {
+  if (i >= N) { playing = false; playBtn.textContent = '▶'; return; }
+  const from = i === 0 ? PTS[0] : PTS[i - 1];
+  const to = PTS[i];
+  const dur = stepDur(i);
+  const far = isFar(i);
+
+  setHudFor(i);
+  if (!map.hasLayer(headMarker)) headMarker.addTo(map);
+
+  anim = { i, dur, from, to, far, start: performance.now() - (resumeElapsed || 0), raf: 0 };
+
+  const a = anim;
+  const frame = () => {
+    if (!playing || anim !== a) return;
+    const t = Math.min((performance.now() - a.start) / a.dur, 1);
+    const head = lerpLL(a.from, a.to, a.far ? easeInOut(t) : t);
+    if (i > 0) setTrail(head);
+    headMarker.setLatLng(head);
+    if (t < 1) {
+      a.raf = requestAnimationFrame(frame);
+    } else {
+      commitPoint(i);
+      anim = null;
+      if (playing) runStep(i + 1);
+    }
+  };
+  a.raf = requestAnimationFrame(frame);
+}
+
+// ------------------------------------------------------------------ управление
+async function play() {
+  if (playing) return;
+  stopFinale();
+  playing = true;
+  playBtn.textContent = '⏸';
+
+  if (followCam.checked) {
+    // кинорежим на канвасе
+    let fromA;
+    if (live && live.lastAFloat !== undefined && liveCanvas.classList.contains('visible')) {
+      fromA = live.lastAFloat;              // продолжаем с паузы
+    } else {
+      fromA = (placed >= N) ? 0 : placed;   // с текущей позиции ползунка
+    }
+    if (fromA >= N) fromA = 0;
+    await startCanvasPlayback(fromA);
+  } else {
+    hideLiveCanvas(); live = null;
+    if (anim) { runStep(anim.i, anim.pausedElapsed || 0); return; }
+    if (placed >= N) render(0);
+    runStep(placed);
+  }
+}
+
+function pause() {
+  playing = false;
+  playBtn.textContent = '▶';
+  if (live && live.raf) {
+    cancelAnimationFrame(live.raf); live.raf = 0;
+    // Синхронизируем Leaflet под замороженным кадром, чтобы скраб был бесшовным
+    const cur = stateAt(live.phases, timeForAFloat(live.phases, live.arrivals, live.lastAFloat));
+    camApply(cur.cam[0], cur.cam[1]);
+  }
+  if (anim) {
+    anim.pausedElapsed = performance.now() - anim.start;
+    if (anim.raf) cancelAnimationFrame(anim.raf);
+  }
+}
+
+playBtn.addEventListener('click', () => { playing ? pause() : play(); });
+resetBtn.addEventListener('click', () => {
+  pause(); live = null; render(0);
+  map.fitBounds(bounds.pad(0.2));
+});
+slider.addEventListener('input', () => {
+  pause(); live = null;
+  render(parseInt(slider.value, 10));
+});
+speedSelect.addEventListener('change', () => {
+  // смена скорости перестраивает таймлайн — продолжим с той же точки при следующем Play
+  if (playing) { pause(); }
+  if (live) { live.lastAFloat = Math.floor(live.lastAFloat || 0); }
+});
+followCam.addEventListener('change', () => { if (playing) pause(); });
+
+// ------------------------------------------------------------------ экспорт видео
+let exportAbort = false;
+
+function setExportProgress(pct, text) {
+  const p = Math.max(0, Math.min(100, Math.round(pct)));
+  exportPct.textContent = p + '%';
+  exportBarFill.style.width = p + '%';
+  if (text) exportStatus.textContent = text;
+}
+
+function loadScript(src) {
+  return new Promise((res, rej) => {
+    const s = document.createElement('script');
+    s.src = src; s.onload = res; s.onerror = () => rej(new Error('load failed'));
+    document.head.appendChild(s);
+  });
+}
+
+function saveBlob(blob, name) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 4000);
+}
+
+function nextTick() {
+  return new Promise(r => {
+    const ch = new MessageChannel();
+    ch.port1.onmessage = () => r();
+    ch.port2.postMessage(0);
+  });
+}
+
+async function exportWebCodecs(W, H, FPS, BITRATE) {
+  const MUXER_URL = 'https://cdn.jsdelivr.net/npm/mp4-muxer@5/build/mp4-muxer.min.js';
+  if (!window.Mp4Muxer) await loadScript(MUXER_URL);
+
+  const codecs = [
+    ['avc', 'avc1.640028'], ['avc', 'avc1.42001f'], ['vp9', 'vp09.00.41.08']
+  ];
+  let chosen = null;
+  for (const [mux, codec] of codecs) {
+    const sup = await VideoEncoder.isConfigSupported(
+      { codec, width: W, height: H, bitrate: BITRATE, framerate: FPS });
+    if (sup.supported) { chosen = { mux, codec }; break; }
+  }
+  if (!chosen) throw new Error('нет поддерживаемого кодека');
+
+  const { phases, arrivals, totalMs } = buildPhases(W, H);
+  const keys = collectTiles(phases, W, H);
+  tilesAborted = false;
+  await loadTiles(keys, (d, t) => {
+    setExportProgress(d / t * 12, 'Готовим карту...');
+  });
+  if (exportAbort) return;
+
+  const canvas = document.createElement('canvas');
+  canvas.width = W; canvas.height = H;
+  const ctx = canvas.getContext('2d');
+
+  const muxer = new Mp4Muxer.Muxer({
+    target: new Mp4Muxer.ArrayBufferTarget(),
+    video: { codec: chosen.mux, width: W, height: H },
+    fastStart: 'in-memory'
+  });
+  let encError = null;
+  const encoder = new VideoEncoder({
+    output: (chunk, meta) => muxer.addVideoChunk(chunk, meta),
+    error: e => { encError = e; }
+  });
+  encoder.configure({ codec: chosen.codec, width: W, height: H,
+                      bitrate: BITRATE, framerate: FPS });
+
+  const totalFrames = Math.ceil(totalMs / 1000 * FPS);
+  const usPerFrame = Math.round(1_000_000 / FPS);
+
+  for (let f = 0; f < totalFrames; f++) {
+    if (exportAbort) { try { encoder.close(); } catch (e) {} return; }
+    if (encError) throw encError;
+
+    const tlMs = f * 1000 / FPS;
+    const st = stateAt(phases, tlMs);
+    drawFrame(ctx, W, H, st.cam, st.aFloat, st.head, tlMs, st.curIdx, arrivals, true, st.final);
+
+    const vf = new VideoFrame(canvas, { timestamp: f * usPerFrame, duration: usPerFrame });
+    encoder.encode(vf, { keyFrame: f % (FPS * 4) === 0 });
+    vf.close();
+
+    if (encoder.encodeQueueSize > 8) {
+      await new Promise(r => {
+        const h = () => { encoder.removeEventListener('dequeue', h); r(); };
+        encoder.addEventListener('dequeue', h);
+        setTimeout(() => { encoder.removeEventListener('dequeue', h); r(); }, 500);
+      });
+    }
+    if (f % 3 === 0) {
+      setExportProgress(12 + f / totalFrames * 86,
+        'Рендерим видео покадрово — можно свернуть вкладку, рендер продолжится...');
+      await nextTick();
+    }
+  }
+
+  await encoder.flush();
+  muxer.finalize();
+  if (exportAbort) return;
+  setExportProgress(100, 'Сохраняем файл...');
+  saveBlob(new Blob([muxer.target.buffer], { type: 'video/mp4' }),
+           `karta-probezhek-${H}p${FPS}.mp4`);
+}
+
+async function exportRealtime(W, H) {
+  const { phases, arrivals, totalMs } = buildPhases(W, H);
+  const keys = collectTiles(phases, W, H);
+  tilesAborted = false;
+  await loadTiles(keys, (d, t) => {
+    setExportProgress(d / t * 15, 'Готовим карту...');
+  });
+  if (exportAbort) return;
+
+  const canvas = document.createElement('canvas');
+  canvas.width = W; canvas.height = H;
+  const ctx = canvas.getContext('2d');
+
+  const mimes = ['video/mp4;codecs=avc1.42E01E', 'video/mp4',
+                 'video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'];
+  const mime = mimes.find(m => MediaRecorder.isTypeSupported(m)) || '';
+  const ext = mime.startsWith('video/mp4') ? 'mp4' : 'webm';
+
+  let stream = canvas.captureStream(0);
+  let track = stream.getVideoTracks()[0];
+  if (!track.requestFrame) { stream = canvas.captureStream(30); track = null; }
+
+  const rec = new MediaRecorder(stream, mime ? { mimeType: mime, videoBitsPerSecond: 8_000_000 } : undefined);
+  const chunks = [];
+  rec.ondataavailable = e => { if (e.data.size) chunks.push(e.data); };
+  const recDone = new Promise(res => { rec.onstop = res; });
+  rec.start(250);
+
+  const t0 = performance.now();
+  await new Promise(resolve => {
+    const frame = () => {
+      if (exportAbort) { resolve(); return; }
+      const elapsed = performance.now() - t0;
+      const st = stateAt(phases, elapsed);
+      drawFrame(ctx, W, H, st.cam, st.aFloat, st.head, elapsed, st.curIdx, arrivals, true, st.final);
+      if (track) track.requestFrame();
+      setExportProgress(15 + elapsed / totalMs * 85,
+        'Записываем в реальном времени — НЕ сворачивайте вкладку...');
+      if (elapsed >= totalMs) { resolve(); return; }
+      requestAnimationFrame(frame);
+    };
+    requestAnimationFrame(frame);
+  });
+
+  rec.stop();
+  await recDone;
+  if (exportAbort || !chunks.length) return;
+  saveBlob(new Blob(chunks, { type: mime || 'video/webm' }), 'karta-probezhek.' + ext);
+}
+
+// --- выбор качества и FPS перед рендером ---
+const QUALITY = {
+  480:  { w: 854,  h: 480,  bitrate: 3_000_000 },
+  720:  { w: 1280, h: 720,  bitrate: 6_000_000 },
+  1080: { w: 1920, h: 1080, bitrate: 10_000_000 }
+};
+let selQuality = 1080, selFps = 30;
+
+function bindSeg(segEl, onPick) {
+  segEl.querySelectorAll('button').forEach(btn => {
+    btn.addEventListener('click', () => {
+      segEl.querySelectorAll('button').forEach(b => b.classList.remove('sel'));
+      btn.classList.add('sel');
+      onPick(parseInt(btn.dataset.v, 10));
+    });
+  });
+}
+bindSeg($('segQ'), v => { selQuality = v; });
+bindSeg($('segF'), v => { selFps = v; });
+
+async function runExport() {
+  exportAbort = false;
+  exportSettings.style.display = 'none';
+  exportProgress.style.display = 'block';
+  setExportProgress(0, 'Подготовка...');
+  const q = QUALITY[selQuality];
+  try {
+    if (window.VideoEncoder) {
+      try {
+        await exportWebCodecs(q.w, q.h, selFps, q.bitrate);
+        return;
+      } catch (e) {
+        if (exportAbort) return;
+        console.warn('WebCodecs недоступен, запасной способ:', e);
+      }
+    }
+    if (!window.MediaRecorder) {
+      alert('Ваш браузер не поддерживает запись видео. Попробуйте Chrome или Edge.');
+      return;
+    }
+    await exportRealtime(q.w, q.h);
+  } finally {
+    exportOverlay.classList.remove('visible');
+  }
+}
+
+videoBtn.addEventListener('click', () => {
+  pause();
+  exportSettings.style.display = 'block';
+  exportProgress.style.display = 'none';
+  exportOverlay.classList.add('visible');
+});
+exportStart.addEventListener('click', () => { runExport().catch(e => {
+  exportOverlay.classList.remove('visible');
+  alert('Не получилось записать видео: ' + e.message);
+}); });
+exportClose.addEventListener('click', () => { exportOverlay.classList.remove('visible'); });
+exportCancel.addEventListener('click', () => { exportAbort = true; tilesAborted = true; });
+
+// ------------------------------------------------------------------ старт
+render(N);
+</script>
+
+</body>
+</html>

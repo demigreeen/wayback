@@ -1,0 +1,422 @@
+/* WayBack — vectormap.js
+   Отрисовка базовой карты из векторных тайлов OpenStreetMap в канвас.
+
+   Зачем свой рендер, а не готовые картинки с чужого сервера:
+   тайлы попадают в скачиваемое видео, а это распространение производного
+   материала — отдельный пункт почти во всех условиях (MapTiler и Stadia
+   согласуют такое письмом в отдел продаж). Здесь мы рисуем карту сами из
+   данных OpenStreetMap, и по ODbL готовая картинка — «Produced Work»:
+   распространять её можно свободно, нужна лишь атрибуция. Подробности —
+   в docs/MAPS.md.
+
+   Наружу отдаётся renderTile(z, x, y) -> Promise<canvas 256×256>.
+   Канвас подставляется вместо Image везде, где движок звал drawImage,
+   поэтому ниже по течению ничего не меняется.
+*/
+'use strict';
+
+const WBVectorMap = (() => {
+
+  const TILE_PX = 256;
+
+  // ---------------------------------------------------------------- стиль
+  // Тёмная палитра под синий след. Порядок ключей = порядок отрисовки.
+  // Карта — фон, а не герой кадра: синий след должен доминировать.
+  // Поэтому всё держим тёмным и почти обесцвеченным, а синеву отдаём следу.
+  const BG        = '#0b0e14';
+  const WATER     = '#08101c';
+  const GREEN     = '#0b1210';
+  const LANDUSE   = '#0c0f16';
+  const BUILDING  = '#111520';
+  const BOUNDARY  = 'rgba(150,165,190,0.18)';
+
+  // Дороги: цвет и толщина в пикселях тайла (256). Мелкие проступают
+  // только на крупных зумах, иначе город превращается в кашу.
+  const ROADS = [
+    { classes: ['service', 'minor'],  color: '#1a1e28', w: 0.5, minZ: 13 },
+    { classes: ['tertiary'],          color: '#20252f', w: 0.7, minZ: 11 },
+    { classes: ['secondary'],         color: '#272c38', w: 0.9, minZ: 9 },
+    { classes: ['primary'],           color: '#2f3542', w: 1.1, minZ: 7 },
+    { classes: ['trunk', 'motorway'], color: '#3a4151', w: 1.4, minZ: 5 }
+  ];
+
+  // Подписи. Мелкие пункты появляются только на крупных зумах, иначе
+  // общий план превращается в сплошной текст.
+  const PLACE_MINZ = {
+    country: 3, state: 6, province: 6,
+    city: 6, town: 9, village: 11,
+    suburb: 12, quarter: 13, neighbourhood: 13, hamlet: 13
+  };
+  // Кегль в пикселях кадра 720 по короткой стороне; player.js домножит
+  const PLACE_SIZE = {
+    country: 15, state: 12, province: 12,
+    city: 13, town: 11.5, village: 10.5,
+    suburb: 10, quarter: 9.5, neighbourhood: 9.5, hamlet: 9.5
+  };
+
+  // ---------------------------------------------------------------- MVT
+  // Минимальный разбор protobuf: нужны только слои, тип геометрии,
+  // одно-два свойства и координаты. Готовые библиотеки тянут лишнее.
+  class Reader {
+    constructor(buf) { this.b = buf; this.p = 0; this.end = buf.length; }
+    varint() {
+      let r = 0, sh = 0, c;
+      do {
+        c = this.b[this.p++];
+        r += (c & 0x7f) * Math.pow(2, sh);
+        sh += 7;
+      } while (c & 0x80);
+      return r;
+    }
+    tag() { const v = this.varint(); return [v >> 3, v & 7]; }
+    skip(wt) {
+      if (wt === 0) this.varint();
+      else if (wt === 2) this.p += this.varint();
+      else if (wt === 5) this.p += 4;
+      else if (wt === 1) this.p += 8;
+      else throw new Error('wire type ' + wt);
+    }
+    bytes() {
+      const n = this.varint();
+      const r = this.b.subarray(this.p, this.p + n);
+      this.p += n;
+      return r;
+    }
+    str() { return new TextDecoder().decode(this.bytes()); }
+    sub() { return new Reader(this.bytes()); }
+  }
+
+  const zig = v => (v >> 1) ^ -(v & 1);
+
+  function decodeTile(u8) {
+    const r = new Reader(u8);
+    const layers = [];
+    while (r.p < r.end) {
+      const [f, wt] = r.tag();
+      if (f === 3 && wt === 2) layers.push(decodeLayer(r.sub()));
+      else r.skip(wt);
+    }
+    return layers;
+  }
+
+  function decodeLayer(r) {
+    let name = '', extent = 4096;
+    const features = [], keys = [], values = [];
+    while (r.p < r.end) {
+      const [f, wt] = r.tag();
+      if (f === 1 && wt === 2) name = r.str();
+      else if (f === 2 && wt === 2) features.push(r.sub());
+      else if (f === 3 && wt === 2) keys.push(r.str());
+      else if (f === 4 && wt === 2) values.push(decodeValue(r.sub()));
+      else if (f === 5 && wt === 0) extent = r.varint();
+      else r.skip(wt);
+    }
+    return { name, extent, features, keys, values };
+  }
+
+  function decodeValue(r) {
+    let v = null;
+    while (r.p < r.end) {
+      const [f, wt] = r.tag();
+      if (f === 1 && wt === 2) v = r.str();
+      else if (f === 4 && wt === 0) v = r.varint();
+      else if (f === 5 && wt === 0) v = r.varint();
+      else if (f === 6 && wt === 0) v = zig(r.varint());
+      else if (f === 7 && wt === 0) v = !!r.varint();
+      else r.skip(wt);
+    }
+    return v;
+  }
+
+  // Возвращает { type, props, geom } — geom это массив колец/линий,
+  // каждое из которых плоский массив координат в единицах extent.
+  function decodeFeature(fr, layer) {
+    fr.p = 0;
+    let type = 0, tags = null, geom = null;
+    while (fr.p < fr.end) {
+      const [f, wt] = fr.tag();
+      if (f === 3 && wt === 0) type = fr.varint();
+      else if (f === 2 && wt === 2) tags = fr.bytes();
+      else if (f === 4 && wt === 2) geom = fr.bytes();
+      else fr.skip(wt);
+    }
+    const props = {};
+    if (tags) {
+      const tr = new Reader(tags);
+      while (tr.p < tr.end) {
+        const k = layer.keys[tr.varint()];
+        const v = layer.values[tr.varint()];
+        if (k !== undefined) props[k] = v;
+      }
+    }
+    return { type, props, geom };
+  }
+
+  function decodeGeometry(geom) {
+    const rings = [];
+    if (!geom) return rings;
+    const gr = new Reader(geom);
+    let x = 0, y = 0, cur = null;
+    while (gr.p < gr.end) {
+      const cmdLen = gr.varint();
+      const cmd = cmdLen & 0x7, times = cmdLen >> 3;
+      if (cmd === 1) {                       // MoveTo — начало нового кольца
+        for (let i = 0; i < times; i++) {
+          x += zig(gr.varint()); y += zig(gr.varint());
+          cur = [x, y];
+          rings.push(cur);
+        }
+      } else if (cmd === 2) {                // LineTo
+        for (let i = 0; i < times; i++) {
+          x += zig(gr.varint()); y += zig(gr.varint());
+          if (cur) { cur.push(x, y); }
+        }
+      } else if (cmd === 7) {                // ClosePath
+        if (cur && cur.length >= 2) cur.push(cur[0], cur[1]);
+      }
+    }
+    return rings;
+  }
+
+  // ---------------------------------------------------------------- отрисовка
+  function pathOf(ctx, rings, k) {
+    ctx.beginPath();
+    for (const r of rings) {
+      if (r.length < 4) continue;
+      ctx.moveTo(r[0] * k, r[1] * k);
+      for (let i = 2; i < r.length; i += 2) ctx.lineTo(r[i] * k, r[i + 1] * k);
+    }
+  }
+
+  function drawLayer(ctx, layer, k, draw) {
+    for (const fr of layer.features) {
+      const f = decodeFeature(fr, layer);
+      draw(f, decodeGeometry(f.geom));
+    }
+  }
+
+  function paint(ctx, layers, z, labels, tileOrigin, worldScale) {
+    ctx.fillStyle = BG;
+    ctx.fillRect(0, 0, TILE_PX, TILE_PX);
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+
+    const byName = {};
+    for (const l of layers) byName[l.name] = l;
+
+    const fillLayer = (name, color, filter) => {
+      const l = byName[name];
+      if (!l) return;
+      const k = TILE_PX / l.extent;
+      ctx.fillStyle = color;
+      drawLayer(ctx, l, k, (f, rings) => {
+        if (f.type !== 3) return;
+        if (filter && !filter(f.props)) return;
+        pathOf(ctx, rings, k);
+        ctx.fill('evenodd');
+      });
+    };
+
+    // Заливки: от общего к частному
+    fillLayer('landuse', LANDUSE);
+    fillLayer('landcover', GREEN, p => /wood|forest|grass|park|scrub/.test(p.class || ''));
+    fillLayer('park', GREEN);
+    fillLayer('water', WATER);
+    if (z >= 14) fillLayer('building', BUILDING);
+
+    // Реки — линиями, иначе на средних зумах их не видно
+    const wl = byName['waterway'];
+    if (wl && z >= 10) {
+      const k = TILE_PX / wl.extent;
+      ctx.strokeStyle = WATER; ctx.lineWidth = 1.2;
+      drawLayer(ctx, wl, k, (f, rings) => {
+        if (f.type !== 2) return;
+        pathOf(ctx, rings, k);
+        ctx.stroke();
+      });
+    }
+
+    // Дороги: от мелких к крупным, чтобы крупные лежали сверху
+    const tr = byName['transportation'];
+    if (tr) {
+      const k = TILE_PX / tr.extent;
+      const feats = [];
+      for (const fr of tr.features) {
+        const f = decodeFeature(fr, tr);
+        if (f.type !== 2) continue;
+        feats.push([f, decodeGeometry(f.geom)]);
+      }
+      for (const spec of ROADS) {
+        if (z < spec.minZ) continue;
+        ctx.strokeStyle = spec.color;
+        ctx.lineWidth = spec.w;
+        ctx.beginPath();
+        for (const [f, rings] of feats) {
+          const cls = f.props.class || '';
+          if (!spec.classes.includes(cls)) continue;
+          for (const r of rings) {
+            if (r.length < 4) continue;
+            ctx.moveTo(r[0] * k, r[1] * k);
+            for (let i = 2; i < r.length; i += 2) ctx.lineTo(r[i] * k, r[i + 1] * k);
+          }
+        }
+        ctx.stroke();
+      }
+    }
+
+    // Подписи не рисуем здесь: на стыках тайлов текст обрезался бы, а имя
+    // из соседнего тайла дублировалось. Собираем их в мировых координатах,
+    // а рисует player.js поверх готового кадра.
+    const pl = byName['place'];
+    if (pl && labels) {
+      const k = TILE_PX / pl.extent;
+      for (const fr of pl.features) {
+        const f = decodeFeature(fr, pl);
+        if (f.type !== 1) continue;
+        const cls = f.props.class || '';
+        const minz = PLACE_MINZ[cls];
+        if (minz === undefined || z < minz) continue;
+        const name = f.props['name:ru'] || f.props.name || f.props.name_en;
+        if (!name) continue;
+        const rings = decodeGeometry(f.geom);
+        if (!rings.length || rings[0].length < 2) continue;
+        // Мировые пиксели на зуме запрошенного тайла
+        const wx = tileOrigin[0] + rings[0][0] * k * worldScale;
+        const wy = tileOrigin[1] + rings[0][1] * k * worldScale;
+        labels.push({ name, cls, size: PLACE_SIZE[cls] || 10,
+                      rank: (f.props.rank || 20) + (cls === 'country' ? -30 : 0),
+                      wx, wy });
+      }
+    }
+
+    // Границы государств — еле заметно, для ориентира на общем плане
+    const bl = byName['boundary'];
+    if (bl) {
+      const k = TILE_PX / bl.extent;
+      ctx.strokeStyle = BOUNDARY; ctx.lineWidth = 0.8;
+      drawLayer(ctx, bl, k, (f, rings) => {
+        if (f.type !== 2 || (f.props.admin_level || 99) > 2) return;
+        pathOf(ctx, rings, k);
+        ctx.stroke();
+      });
+    }
+  }
+
+  // ---------------------------------------------------------------- источник
+  // У OpenFreeMap адрес тайлов версионированный и меняется при обновлении
+  // планеты, поэтому берём актуальный из TileJSON один раз при старте.
+  let tilesTemplate = null;
+  let maxDataZoom = 14;
+  let initPromise = null;
+
+  function init(tilejsonUrl) {
+    if (initPromise) return initPromise;
+    initPromise = (async () => {
+      const r = await fetch(tilejsonUrl);
+      const j = await r.json();
+      if (!j.tiles || !j.tiles.length) throw new Error('в TileJSON нет tiles');
+      tilesTemplate = j.tiles[0];
+      if (typeof j.maxzoom === 'number') maxDataZoom = j.maxzoom;
+      return tilesTemplate;
+    })();
+    return initPromise;
+  }
+
+  // Четыре тайла z13 берут данные из одного z12. Без общего кэша каждый
+  // просил бы его сам — вчетверо больше запросов и разбора.
+  const dataCache = new Map();
+  const DATA_CACHE_MAX = 400;
+
+  function tileData(z, x, y) {
+    const key = z + '/' + x + '/' + y;
+    let p = dataCache.get(key);
+    if (p) return p;
+    p = fetchTile(z, x, y).then(u8 => (u8.length ? decodeTile(u8) : []));
+    dataCache.set(key, p);
+    if (dataCache.size > DATA_CACHE_MAX) {
+      // Map держит порядок вставки — вычищаем самые давние
+      const drop = dataCache.size - DATA_CACHE_MAX;
+      let i = 0;
+      for (const k of dataCache.keys()) { if (i++ >= drop) break; dataCache.delete(k); }
+    }
+    return p;
+  }
+
+  async function fetchTile(z, x, y) {
+    if (!tilesTemplate) throw new Error('WBVectorMap.init не вызван');
+    const url = tilesTemplate
+      .replace('{z}', z).replace('{x}', x).replace('{y}', y);
+    const res = await fetch(url);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    let u8 = new Uint8Array(await res.arrayBuffer());
+    // Некоторые зеркала отдают gzip без заголовка Content-Encoding
+    if (u8.length > 2 && u8[0] === 0x1f && u8[1] === 0x8b) u8 = fflate.gunzipSync(u8);
+    return u8;
+  }
+
+  // Потолок зума данных. Ниже реального maxDataZoom намеренно: один тайл
+  // z12 покрывает четыре тайла z13, а вектор при увеличении не мылится.
+  // Это вчетверо сокращает число запросов на рабочем зуме анимации —
+  // главный источник трафика. Платим детализацией мелких улиц, но карта
+  // у нас фон, а не герой кадра.
+  const DATA_ZOOM_CAP = 12;
+
+  // Данные есть только до maxDataZoom. Выше берём родительский тайл и
+  // рисуем нужную четверть в увеличении — вектор от этого не мылится.
+  async function renderTile(z, x, y) {
+    const cv = document.createElement('canvas');
+    cv.width = TILE_PX; cv.height = TILE_PX;
+    const ctx = cv.getContext('2d');
+
+    let dz = 0, dx = x, dy = y, dzoom = z;
+    const cap = Math.min(maxDataZoom, DATA_ZOOM_CAP);
+    while (dzoom > cap) { dzoom--; dx >>= 1; dy >>= 1; dz++; }
+
+    let layers;
+    try { layers = await tileData(dzoom, dx, dy); }
+    catch (e) {
+      dataCache.delete(dzoom + '/' + dx + '/' + dy);   // дать шанс повторить
+      ctx.fillStyle = BG; ctx.fillRect(0, 0, TILE_PX, TILE_PX);
+      return cv;
+    }
+
+    if (dz > 0) {
+      const scale = 1 << dz;
+      ctx.save();
+      ctx.translate(-(x - (dx << dz)) * TILE_PX, -(y - (dy << dz)) * TILE_PX);
+      ctx.scale(scale, scale);
+      // Фон рисуем до трансформации, иначе зальётся только четверть
+      ctx.restore();
+      ctx.fillStyle = BG; ctx.fillRect(0, 0, TILE_PX, TILE_PX);
+      ctx.save();
+      ctx.translate(-(x - (dx << dz)) * TILE_PX, -(y - (dy << dz)) * TILE_PX);
+      ctx.scale(scale, scale);
+    }
+
+    let labels = [];
+    if (layers.length) {
+      const scale = 1 << dz;
+      // Начало координат тайла с данными, пересчитанное на запрошенный зум
+      paint(ctx, layers, z, labels,
+            [dx * TILE_PX * scale, dy * TILE_PX * scale], scale);
+    } else { ctx.fillStyle = BG; ctx.fillRect(0, 0, TILE_PX, TILE_PX); }
+
+    if (dz > 0) ctx.restore();
+
+    // Отсекать по границам тайла нельзя: у векторных тайлов есть буфер, и
+    // объекты у края намеренно продублированы в соседях. «Москва» лежала
+    // на 14 пикселей ниже нижней границы своего тайла и терялась.
+    // Дубликаты убирает player.js при отрисовке — там виден весь кадр.
+    // Исключение — когда тайл нарисован из родительского: он покрывает
+    // четыре запрошенных, и без отсечения имя размножится вчетверо.
+    if (dz > 0) {
+      const x0 = x * TILE_PX, y0 = y * TILE_PX;
+      labels = labels.filter(l => l.wx >= x0 && l.wx < x0 + TILE_PX &&
+                                  l.wy >= y0 && l.wy < y0 + TILE_PX);
+    }
+    cv.labels = labels;
+    return cv;
+  }
+
+  return { init, renderTile, decodeTile, TILE_PX, BG };
+})();

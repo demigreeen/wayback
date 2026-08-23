@@ -1,0 +1,15 @@
+# Деплой статики. Publish-каталог — site/, сборки нет.
+[build]
+  publish = "site"
+  command = ""
+
+# Имена файлов не версионируются (сборщика нет), поэтому долгий кэш
+# опасен: после обновления сайта вернувшийся пользователь неделю получал бы
+# старый JS к новому HTML. no-cache не запрещает кэш, а требует проверять
+# актуальность — обычно это дешёвый ответ 304 без передачи файла.
+[[headers]]
+  for = "/*"
+  [headers.values]
+    Cache-Control = "public, no-cache"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"

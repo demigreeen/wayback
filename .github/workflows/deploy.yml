@@ -1,0 +1,43 @@
+# Публикация сайта на GitHub Pages при каждом коммите в main.
+#
+# Почему Pages, а не Cloudflare: сеть Cloudflare недоступна из России,
+# а это наша первая аудитория. Pages оттуда открывается и раздаётся
+# глобальным CDN, так что зарубежным пользователям тоже быстро.
+#
+# Публикуется только папка site/. Всё остальное (tools, docs, legacy)
+# лежит в репозитории, но наружу не отдаётся.
+
+name: Публикация сайта
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:        # кнопка «запустить вручную» во вкладке Actions
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Если пушей подряд несколько, доводим до конца только последний
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+      - id: deployment
+        uses: actions/deploy-pages@v4
