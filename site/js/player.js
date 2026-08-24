@@ -1220,8 +1220,7 @@ const WBPlayer = (() => {
       buyBtn.textContent = 'отключена';
       return;
     }
-    buyBtn.innerHTML = 'Убрать за <span class="old">' + p.was + '</span>' +
-      p.now + ' ' + p.currency;
+    buyBtn.textContent = 'Убрать водяной знак';
     $('buyWas').textContent = p.was + ' ' + p.currency;
     $('buyNow').textContent = p.now + ' ' + p.currency;
     const go = $('buyGo');

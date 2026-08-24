@@ -22,6 +22,12 @@
 }
 
 * { box-sizing: border-box; }
+
+/* Атрибут hidden приходит из таблицы браузера, а она слабее любого правила
+   автора: одного `display: flex` в классе хватает, чтобы скрытый элемент
+   остался на экране. Так строка покупки показывалась пустой кнопкой.
+   Правило должно стоять раньше остальных и быть безусловным. */
+[hidden] { display: none !important; }
 html { scroll-behavior: smooth; }
 body {
   margin: 0; background: var(--bg); color: var(--ink);
@@ -184,8 +190,59 @@ body.in-player { overflow: hidden; }
 
 .site-footer { border-top: 1px solid var(--line); padding: 26px 0; }
 .site-footer .wrap {
-  display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+  display: flex; flex-direction: column; gap: 8px;
   color: var(--mut); font-size: 13px;
+}
+.foot-req b { color: var(--ink); font-weight: 600; }
+.foot-links { display: flex; gap: 18px; flex-wrap: wrap; }
+.site-footer a { color: var(--mut); }
+.site-footer a:hover { color: var(--blue); }
+.foot-credit { color: #94a3b8; }
+
+/* Незаполненный реквизит должен бросаться в глаза: сайт с таким текстом
+   платёжный сервис не примет, и заметить это надо до отправки анкеты. */
+.wb-missing {
+  background: #fef2f2; color: #b91c1c; padding: 0 6px; border-radius: 4px;
+  font-weight: 600; white-space: nowrap;
+}
+
+/* ───────────────────────── цена ───────────────────────── */
+.price-card {
+  border: 1px solid var(--line); border-radius: 16px; background: var(--bg);
+  padding: 24px 26px; margin: 24px 0 32px;
+}
+.price-head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 18px; flex-wrap: wrap; padding-bottom: 16px;
+  border-bottom: 1px solid var(--line);
+}
+.price-name { font-size: 17px; font-weight: 700; color: var(--ink); }
+.price-nums { display: flex; align-items: baseline; gap: 12px; }
+.price-nums s { font-size: 18px; color: var(--mut); text-decoration-thickness: 2px; }
+.price-nums b { font-size: 34px; font-weight: 800; color: var(--blue);
+  letter-spacing: -0.02em; }
+.price-list { list-style: none; padding: 0; margin: 18px 0 0; }
+.price-list li { position: relative; padding-left: 24px; margin-bottom: 9px;
+  font-size: 14.5px; color: var(--mut); }
+.price-list li b { color: var(--ink); font-weight: 600; }
+.price-list li::before {
+  content: ''; position: absolute; left: 3px; top: 8px;
+  width: 6px; height: 6px; border-radius: 50%; background: var(--blue);
+}
+.price-where { margin: 18px 0 0; font-size: 13.5px; color: var(--mut); }
+.price-docs { font-size: 13.5px; }
+
+/* ───────────────────────── страницы документов ───────────────────────── */
+.doc { padding: 44px 0 64px; }
+.doc h1 { font-size: 30px; letter-spacing: -0.02em; margin: 0 0 6px; }
+.doc .doc-date { color: var(--mut); font-size: 13.5px; margin: 0 0 28px; }
+.doc h2 { font-size: 18px; margin: 32px 0 10px; }
+.doc p { margin: 0 0 12px; font-size: 15px; line-height: 1.7; }
+.doc ul { margin: 0 0 12px; padding-left: 22px; color: var(--ink); }
+.doc li { margin-bottom: 7px; font-size: 15px; line-height: 1.7; }
+.doc .req {
+  background: var(--soft); border: 1px solid var(--line); border-radius: 12px;
+  padding: 16px 20px; line-height: 2;
 }
 
 /* ───────────────────────── модалки лендинга ───────────────────────── */
@@ -427,8 +484,6 @@ body.in-player { overflow: hidden; }
   box-shadow: 0 2px 10px rgba(59, 130, 246, 0.35);
 }
 .buy-btn:hover { filter: brightness(1.08); }
-.buy-btn .old { opacity: .65; text-decoration: line-through; margin: 0 6px;
-  font-weight: 600; }
 .buy-btn:disabled {
   background: none !important; box-shadow: none; opacity: 1;
   color: var(--p-accent-hi) !important; padding: 0 !important;
@@ -493,7 +548,6 @@ body.in-player { overflow: hidden; }
   .dz-title { font-size: 17px; }
   .section { padding: 48px 0; }
   .modal { padding: 26px 20px; }
-  .site-footer .wrap { flex-direction: column; gap: 6px; }
 
   /* Плеер: панель в две строки, кнопки под палец (минимум 44px) */
   #hud {

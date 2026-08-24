@@ -27,6 +27,7 @@
     <nav>
       <a href="#how">Как это работает</a>
       <a href="#formats">Форматы</a>
+      <a href="#price">Цена</a>
       <a href="#privacy">Приватность</a>
     </nav>
   </div>
@@ -140,6 +141,46 @@
     </div>
   </section>
 
+  <section id="price" class="section alt">
+    <div class="wrap narrow">
+      <h2>Цена</h2>
+      <p>Сервис бесплатный. Загрузка архива, анимация и скачивание видео
+      не стоят ничего и ничем не ограничены: ни разрешением, ни длительностью,
+      ни количеством роликов.</p>
+      <p>Платная возможность одна — <b>убрать надпись wayback.pro</b> из угла
+      кадра.</p>
+
+      <div class="price-card">
+        <div class="price-head">
+          <div class="price-name">Отключение водяного знака</div>
+          <div class="price-nums">
+            <s><span data-wb-price="was"></span> ₽</s>
+            <b><span data-wb-price="now"></span> ₽</b>
+          </div>
+        </div>
+        <ul class="price-list">
+          <li>В углу кадра не будет надписи <b>wayback.pro</b></li>
+          <li>Разовый платёж, без подписки и без аккаунта</li>
+          <li>Действует бессрочно и на любом вашем устройстве</li>
+        </ul>
+        <p class="price-where">Купить можно в окне «Скачать видео» — после того,
+        как ролик готов и вы его посмотрели.</p>
+      </div>
+
+      <h3>Как вы получите заказ</h3>
+      <p>После оплаты на почту, указанную при платеже, приходит письмо
+      с персональной ссылкой. Переход по ней отключает надпись в кадре.
+      Ссылка отправляется <b>в течение суток</b> с момента оплаты, обычно
+      заметно быстрее.</p>
+      <p>Сохраните письмо: ссылка бессрочная и открывает доступ на любом
+      вашем устройстве. Если браузер очистит данные, достаточно перейти
+      по ней снова. Ссылка личная — публиковать её не нужно.</p>
+      <p class="price-docs">Условия целиком —
+      в <a href="oferta.html">публичной оферте</a>. Что происходит
+      с данными — в <a href="privacy.html">политике конфиденциальности</a>.</p>
+    </div>
+  </section>
+
   <section id="privacy" class="section">
     <div class="wrap narrow">
       <h2>Приватность</h2>
@@ -158,11 +199,7 @@
   </section>
 </main>
 
-<footer class="site-footer">
-  <div class="wrap">
-    <span>Карта: <span id="mapCredit"></span> · Города: GeoNames (CC BY)</span>
-  </div>
-</footer>
+<footer class="site-footer" id="siteFooter"></footer>
 
 <!-- ─── прогресс разбора ─── -->
 <div id="parseOverlay" class="modal-overlay">
@@ -265,15 +302,14 @@
       </div>
 
       <div id="buyPanel" hidden>
-        <div class="buy-title">Видео без подписи</div>
+        <div class="buy-title">Отключение водяного знака</div>
         <div class="buy-price">
           <s id="buyWas"></s><b id="buyNow"></b>
         </div>
-        <div class="buy-badge">цена запуска</div>
+        <div class="buy-badge">цена</div>
         <ul class="buy-list">
           <li>В углу кадра не будет надписи <b>wayback.pro</b></li>
-          <li>Действует на все ваши видео, сколько бы вы их ни сделали</li>
-          <li>Разовый платёж, без подписки и без аккаунта</li>
+          <li>Разовый платёж</li>
           <li>Ссылка придёт на почту и работает на любом вашем устройстве</li>
         </ul>
         <a id="buyGo" class="buy-go" href="#" target="_blank" rel="noopener"></a>
@@ -293,7 +329,9 @@
 <script src="js/vendor/fflate.min.js"></script>
 <script src="js/vectormap.js"></script>
 <script src="js/cities.js"></script>
+<script src="js/contacts.js"></script>
 <script src="js/license.js"></script>
+<script src="js/footer.js"></script>
 <script src="js/parse.js"></script>
 <script src="js/player.js"></script>
 <script src="js/app.js"></script>
