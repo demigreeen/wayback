@@ -20,3 +20,6 @@ wayback-private-key.json
 
 # Зависимости облачной функции — ставятся через npm install, в репозиторий не идут
 functions/*/node_modules/
+
+# Архив для загрузки в Yandex Cloud Functions — собирается локально, не в репозиторий
+functions/*/*.zip
