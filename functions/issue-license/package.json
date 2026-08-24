@@ -1,0 +1,11 @@
+{
+  "name": "wayback-issue-license",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Облачная функция: платёж в ЮKassa -> подписанная ссылка -> письмо",
+  "main": "index.js",
+  "dependencies": {
+    "nodemailer": "^6.9.14",
+    "node-fetch": "^2.7.0"
+  }
+}

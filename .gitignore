@@ -17,3 +17,6 @@ animation.html
 # Закрытый ключ выдачи покупок — в репозиторий не попадает никогда
 wayback-private-key.json
 *private-key*.json
+
+# Зависимости облачной функции — ставятся через npm install, в репозиторий не идут
+functions/*/node_modules/
