@@ -53,8 +53,7 @@ python tools/build_function.py
 Yandex Cloud не найдёт `index.js`. Во-вторых, `Compress-Archive` в Windows
 PowerShell пишет пути через обратный слэш, а формат ZIP требует прямой:
 на Linux такой архив разворачивается в плоский набор файлов с именами
-вроде `node_modules
-odemailer\index.js`, и функция падает на `require`
+вроде `node_modules\nodemailer\index.js`, и функция падает на `require`
 так, будто зависимостей нет вовсе. Скрипт проверяет и то, и другое.
 
 ## Шаг 2. Создать функцию
