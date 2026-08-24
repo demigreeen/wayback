@@ -537,31 +537,39 @@ const WBPlayer = (() => {
     ctx.fillText(ATTRIB, 12 * k, H - 10 * k);
 
     if (withHud) {
+      // Покупка убирает обе марки: «WAYBACK» в шапке панели и адрес
+      // в правом нижнем углу. Без шапки панель не должна остаться
+      // с пустотой сверху — содержимое поднимается, а сама она укорачивается.
+      const brand = !(typeof WBLicense !== 'undefined' && WBLicense.isPaid());
+      const up = brand ? 0 : 32;
+
       const boxW = Math.min(360 * k, W - 48 * k);
       ctx.fillStyle = 'rgba(13,16,24,0.75)';
-      roundRect(ctx, 24 * k, 24 * k, boxW, 152 * k, 14 * k); ctx.fill();
-      ctx.fillStyle = ACCENT_HI; ctx.font = `700 ${13 * k}px "Segoe UI", Arial`;
-      ctx.fillText('WAYBACK', 44 * k, 54 * k);
+      roundRect(ctx, 24 * k, 24 * k, boxW, (152 - up) * k, 14 * k); ctx.fill();
+      if (brand) {
+        ctx.fillStyle = ACCENT_HI; ctx.font = `700 ${13 * k}px "Segoe UI", Arial`;
+        ctx.fillText('WAYBACK', 44 * k, 54 * k);
+      }
 
       const dim = '#9aa0ad';
       if (finalHud) {
         ctx.fillStyle = '#f4f3f1'; ctx.font = `800 ${21 * k}px "Segoe UI", Arial`;
-        ctx.fillText(DATE_RANGE, 44 * k, 94 * k);
+        ctx.fillText(DATE_RANGE, 44 * k, (94 - up) * k);
         ctx.fillStyle = dim; ctx.font = `600 ${15 * k}px "Segoe UI", Arial`;
-        ctx.fillText(GEO_SUMMARY || 'вся история', 44 * k, 122 * k);
+        ctx.fillText(GEO_SUMMARY || 'вся история', 44 * k, (122 - up) * k);
         ctx.fillStyle = ACCENT_HI; ctx.font = `700 ${16 * k}px "Segoe UI", Arial`;
         ctx.fillText(`${N} ${plural(N, ['тренировка', 'тренировки', 'тренировок'])} · ` +
-                     `${CUM_KM[N - 1].toFixed(1)} км`, 44 * k, 152 * k);
+                     `${CUM_KM[N - 1].toFixed(1)} км`, 44 * k, (152 - up) * k);
       } else {
         const cur = curIdx >= 0 && curIdx < N ? ACTS[curIdx] : null;
         ctx.fillStyle = '#f4f3f1'; ctx.font = `800 ${34 * k}px "Segoe UI", Arial`;
-        ctx.fillText(cur ? cur.date : '—', 44 * k, 96 * k);
+        ctx.fillText(cur ? cur.date : '—', 44 * k, (96 - up) * k);
         ctx.fillStyle = dim; ctx.font = `600 ${15 * k}px "Segoe UI", Arial`;
         ctx.fillText(ellipsize(ctx, cur && cur.locLabel ? cur.locLabel : '',
-                               boxW - 40 * k), 44 * k, 122 * k);
+                               boxW - 40 * k), 44 * k, (122 - up) * k);
         ctx.fillStyle = ACCENT_HI; ctx.font = `700 ${16 * k}px "Segoe UI", Arial`;
         const km = curIdx >= 0 ? CUM_KM[Math.min(curIdx, N - 1)].toFixed(1) : '0';
-        ctx.fillText(`${placedN} / ${N} · ${km} км`, 44 * k, 152 * k);
+        ctx.fillText(`${placedN} / ${N} · ${km} км`, 44 * k, (152 - up) * k);
       }
 
       // Водяной знак сайта. Он же — канал привлечения: бесплатное видео
@@ -1338,5 +1346,19 @@ const WBPlayer = (() => {
   const credit = $('mapCredit');
   if (credit) credit.textContent = MAP.attribution;
 
-  return { start };
+  // Отрисовка одного кадра в переданный канвас — для проверок из site/_test.
+  // Идёт тем же путём, что и экспорт видео, поэтому проверка видит настоящий
+  // кадр, а не его пересказ. Требует уже запущенного плеера: данные и карта
+  // берутся из его состояния.
+  function renderFrameTo(canvas, W, H, atMs) {
+    const { phases, arrivals, totalMs } = buildPhases(W, H);
+    const t = atMs === undefined ? totalMs : Math.max(0, Math.min(totalMs, atMs));
+    const st = stateAt(phases, t);
+    canvas.width = W; canvas.height = H;
+    drawFrame(canvas.getContext('2d'), W, H, st.cam, st.aFloat, st.head, t,
+              st.curIdx, arrivals, true, st.final, geoForVideo(W, H));
+    return { totalMs, at: t };
+  }
+
+  return { start, renderFrameTo };
 })();
