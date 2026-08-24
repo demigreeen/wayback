@@ -244,6 +244,10 @@ body.in-player { overflow: hidden; }
   background: var(--soft); border: 1px solid var(--line); border-radius: 12px;
   padding: 16px 20px; line-height: 2;
 }
+/* Каждый реквизит — отдельной строкой, а не через <br>: незаполненное
+   необязательное поле (телефон) должно скрываться целиком, вместе
+   с подписью, а не оставлять висеть «Телефон:» без номера. */
+.doc .req-line { display: block; }
 
 /* ───────────────────────── модалки лендинга ───────────────────────── */
 .modal-overlay {

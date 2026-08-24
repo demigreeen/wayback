@@ -15,23 +15,22 @@ const WBContacts = (() => {
 
   const DATA = {
     // ФИО самозанятого полностью
-    name: '',
+    name: 'Космодемьянская Олеся Александровна',
 
     // ИНН самозанятого, 12 цифр
-    inn: '',
+    inn: '402811145107',
 
     // Почта для связи с покупателями. Показывается на сайте открыто,
     // поэтому лучше отдельный ящик, а не личный.
-    email: '',
+    email: 'koslos5896@gmail.com',
 
     // Телефон. Платёжный сервис просит его в списке контактов.
-    // Можно оставить пустым, если хватает почты — но тогда будьте готовы
-    // дослать номер по их запросу.
+    // Пустое значение прячет строку целиком, а не оставляет «Телефон: —».
     phone: '',
 
     // Почтовый адрес. Достаточно города: домашний адрес на открытом сайте
     // собирает спам и звонки, а требованию соответствует и город.
-    address: ''
+    address: 'г. Калуга'
   };
 
   // Дата, с которой действуют документы. Меняется при правке оферты.
@@ -46,11 +45,27 @@ const WBContacts = (() => {
   // Подстановка в разметку: <span data-wb="email"></span>.
   // Для почты и телефона делаем ссылку — на телефоне это одно касание.
   function fill(root) {
-    (root || document).querySelectorAll('[data-wb]').forEach(el => {
+    const scope = root || document;
+
+    // Необязательные строки: <span data-wb-line="phone">Телефон: …</span>.
+    // Пустое значение убирает строку целиком — иначе в реквизитах осталось
+    // бы висеть «Телефон:» без номера.
+    scope.querySelectorAll('[data-wb-line]').forEach(el => {
+      el.hidden = !DATA[el.dataset.wbLine];
+    });
+
+    scope.querySelectorAll('[data-wb]').forEach(el => {
       const key = el.dataset.wb;
       if (key === 'docsDate') { el.textContent = DOCS_DATE; return; }
       const v = DATA[key];
-      if (!v) { el.textContent = MISSING; el.classList.add('wb-missing'); return; }
+      if (!v) {
+        // Внутри скрытой необязательной строки пометка не нужна: строки
+        // на экране нет, а .wb-missing должен оставаться честным признаком
+        // того, что забыли заполнить обязательное поле.
+        const line = el.closest('[data-wb-line]');
+        if (line && line.hidden) { el.textContent = ''; return; }
+        el.textContent = MISSING; el.classList.add('wb-missing'); return;
+      }
       el.classList.remove('wb-missing');
       if (key === 'email') { el.innerHTML = ''; el.append(link('mailto:' + v, v)); return; }
       if (key === 'phone') { el.innerHTML = ''; el.append(link('tel:' + v.replace(/[^\d+]/g, ''), v)); return; }
