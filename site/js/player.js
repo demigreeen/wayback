@@ -1200,20 +1200,17 @@ const WBPlayer = (() => {
     if (which === 'settings') syncBuyRow();
   }
 
-  // Строка про подпись показывается, только когда покупку действительно
-  // можно совершить: ссылка на оплату задана в license.js. Иначе посетитель
-  // упёрся бы в кнопку, которая никуда не ведёт.
+  // Строка про подпись видна всегда. Раньше она пряталась, пока в license.js
+  // не задана ссылка на оплату, — из-за этого покупки на сайте не было видно
+  // вовсе, и товар негде было показать. Теперь прячется только сама кнопка
+  // оплаты: без ссылки вместо неё стоит рабочий обходной путь — почта,
+  // по которой ключ выдают вручную через tools/keygen.html.
   function syncBuyRow() {
     if (typeof WBLicense === 'undefined') { wmRow.hidden = true; return; }
     const p = WBLicense.price();
     const paid = WBLicense.isPaid();
 
-    // Строку показываем либо когда покупка уже есть, либо когда её можно
-    // совершить. Кнопка без работающей ссылки на оплату — тупик, поэтому
-    // до появления ссылки в license.js строки нет вовсе.
-    wmRow.hidden = !paid && !WBLicense.enabled();
-    if (wmRow.hidden) return;
-
+    wmRow.hidden = false;
     wmRow.classList.toggle('paid', paid);
     buyBtn.disabled = paid;
     if (paid) {
@@ -1223,9 +1220,16 @@ const WBPlayer = (() => {
     buyBtn.textContent = 'Убрать водяной знак';
     $('buyWas').textContent = p.was + ' ' + p.currency;
     $('buyNow').textContent = p.now + ' ' + p.currency;
+
     const go = $('buyGo');
-    go.textContent = 'Оплатить ' + p.now + ' ' + p.currency;
-    go.href = WBLicense.payUrl();
+    const soon = $('buySoon');
+    const canPay = WBLicense.enabled();
+    go.hidden = !canPay;
+    soon.hidden = canPay;
+    if (canPay) {
+      go.textContent = 'Оплатить ' + p.now + ' ' + p.currency;
+      go.href = WBLicense.payUrl();
+    }
   }
 
   // Повторный запуск (пользователь вернулся и загрузил другой архив):
