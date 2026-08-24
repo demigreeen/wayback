@@ -27,8 +27,8 @@
     <nav>
       <a href="#how">Как это работает</a>
       <a href="#formats">Форматы</a>
-      <a href="price.html">Цена</a>
       <a href="#privacy">Приватность</a>
+      <a href="price.html">Тарифы</a>
     </nav>
   </div>
 </header>
@@ -225,6 +225,7 @@
       <input type="checkbox" id="followCam" checked> камера
     </label>
     <button class="secondary" id="videoBtn" title="Записать и скачать видеофайл" type="button">⬇ Скачать видео</button>
+    <button class="buy-btn" id="buyBtn" title="Убрать надпись wayback.pro из кадра" type="button" hidden>Убрать водяной знак</button>
     <div id="counter"></div>
   </div>
 
@@ -252,10 +253,6 @@
             <button data-v="30" class="sel" type="button">30</button>
             <button data-v="60" type="button">60</button>
           </div>
-        </div>
-        <div class="exp-row wm-row" id="wmRow" hidden>
-          <span>Подпись в кадре</span>
-          <button id="buyBtn" class="buy-btn" type="button"></button>
         </div>
         <button id="exportStart" type="button">Начать рендер</button>
         <button id="exportClose" type="button">Отмена</button>

@@ -474,24 +474,18 @@ body.in-player { overflow: hidden; }
   border: none !important; }
 
 /* ─────────────────── покупка: снятие подписи ─────────────────── */
-/* Строка живёт в настройках экспорта последней: подпись — последнее,
-   о чём человек думает перед тем, как нажать «Начать рендер». */
-.wm-row { margin-top: 18px; padding-top: 16px;
-  border-top: 1px solid var(--p-border); }
-.wm-row.paid > span { color: var(--p-text); }
-.buy-btn {
-  width: auto !important; height: 34px; padding: 0 16px !important;
-  font-size: 13px !important; font-weight: 700 !important;
-  border-radius: 9px !important; white-space: nowrap;
-  background: linear-gradient(180deg, var(--p-accent-hi), var(--p-accent)) !important;
-  color: #fff !important; border: none !important;
-  box-shadow: 0 2px 10px rgba(59, 130, 246, 0.35);
+/* Кнопка покупки стоит в панели плеера рядом со «Скачать видео».
+   Оформлена тише главного действия: скачивание — то, зачем пришли,
+   а покупка не должна перекрикивать его в той же строке. */
+#player button.buy-btn {
+  width: auto; height: 42px; padding: 0 14px;
+  font-size: 13px; font-weight: 600; white-space: nowrap;
+  background: rgba(59, 130, 246, 0.14);
+  color: var(--p-accent-hi);
+  border: 1px solid rgba(59, 130, 246, 0.45);
 }
-.buy-btn:hover { filter: brightness(1.08); }
-.buy-btn:disabled {
-  background: none !important; box-shadow: none; opacity: 1;
-  color: var(--p-accent-hi) !important; padding: 0 !important;
-  font-weight: 600 !important; cursor: default;
+#player button.buy-btn:hover {
+  background: rgba(59, 130, 246, 0.24); filter: none;
 }
 
 #buyPanel { text-align: left; max-width: 380px; }
@@ -584,6 +578,10 @@ body.in-player { overflow: hidden; }
   #player button { width: 44px; height: 44px; }
   #player select { padding: 11px 6px; flex: 1 1 40%; min-width: 0; font-size: 11.5px; }
   #videoBtn { flex: 1 1 auto; justify-content: center; }
+  /* Кнопка покупки на телефоне всё равно переносится на свою строку —
+     пусть занимает её целиком, иначе полупустая строка читается как сбой
+     вёрстки, а не как отдельное действие */
+  #player button.buy-btn { flex: 1 1 100%; width: auto; height: 44px; }
   /* Камера включена по умолчанию, и на телефоне это единственный
      осмысленный режим — прячем переключатель, экономя строку */
   #player label.follow { display: none; }

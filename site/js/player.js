@@ -256,7 +256,7 @@ const WBPlayer = (() => {
   let shownCountEl, currentDateEl, currentNameEl, cumKmEl, counterEl, liveCanvas;
   let exportOverlay, exportPct, exportBarFill, exportStatus, exportCancel;
   let exportSettings, exportProgress, exportStart, exportClose;
-  let buyPanel, wmRow, buyBtn;
+  let buyPanel, buyBtn;
 
   // ---------------------------------------------------------------- геометрия шагов
   const delayMs = () => parseInt(speedSelect.value, 10);
@@ -1175,8 +1175,17 @@ const WBPlayer = (() => {
       showExportView('settings');
       exportOverlay.classList.add('visible');
     });
-    buyBtn.addEventListener('click', () => showExportView('buy'));
-    $('buyBack').addEventListener('click', () => showExportView('settings'));
+    // Кнопка покупки теперь вне окна экспорта, поэтому сама его открывает.
+    // «Назад» соответственно закрывает окно, а не возвращает к настройкам:
+    // в настройки человек из покупки не приходил.
+    buyBtn.addEventListener('click', () => {
+      pause();
+      showExportView('buy');
+      exportOverlay.classList.add('visible');
+    });
+    $('buyBack').addEventListener('click', () => {
+      exportOverlay.classList.remove('visible');
+    });
     exportStart.addEventListener('click', () => {
       runExport().catch(e => {
         exportOverlay.classList.remove('visible');
@@ -1197,27 +1206,24 @@ const WBPlayer = (() => {
     exportSettings.style.display = which === 'settings' ? 'block' : 'none';
     buyPanel.hidden = which !== 'buy';
     exportProgress.style.display = which === 'progress' ? 'block' : 'none';
-    if (which === 'settings') syncBuyRow();
+    if (which === 'buy') fillBuyPanel();
   }
 
-  // Строка про подпись видна всегда. Раньше она пряталась, пока в license.js
-  // не задана ссылка на оплату, — из-за этого покупки на сайте не было видно
-  // вовсе, и товар негде было показать. Теперь прячется только сама кнопка
-  // оплаты: без ссылки вместо неё стоит рабочий обходной путь — почта,
-  // по которой ключ выдают вручную через tools/keygen.html.
-  function syncBuyRow() {
-    if (typeof WBLicense === 'undefined') { wmRow.hidden = true; return; }
-    const p = WBLicense.price();
-    const paid = WBLicense.isPaid();
+  // Кнопка покупки стоит в панели плеера, рядом со «Скачать видео».
+  // Купившему её показывать незачем: покупать больше нечего, а отсутствие
+  // надписи в кадре и есть подтверждение, что покупка действует.
+  function syncBuyBtn() {
+    if (!buyBtn) return;
+    buyBtn.hidden = typeof WBLicense === 'undefined' || WBLicense.isPaid();
+  }
 
-    wmRow.hidden = false;
-    wmRow.classList.toggle('paid', paid);
-    buyBtn.disabled = paid;
-    if (paid) {
-      buyBtn.textContent = 'отключена';
-      return;
-    }
-    buyBtn.textContent = 'Убрать водяной знак';
+  // Панель покупки заполняется при открытии. Кнопка оплаты появляется,
+  // только когда в license.js задана ссылка; без неё вместо кнопки стоит
+  // рабочий обходной путь — почта, по которой ключ выдают вручную
+  // через tools/keygen.html.
+  function fillBuyPanel() {
+    if (typeof WBLicense === 'undefined') return;
+    const p = WBLicense.price();
     $('buyWas').textContent = p.was + ' ' + p.currency;
     $('buyNow').textContent = p.now + ' ' + p.currency;
 
@@ -1262,7 +1268,13 @@ const WBPlayer = (() => {
     exportBarFill = $('exportBarFill'); exportStatus = $('exportStatus');
     exportCancel = $('exportCancel');
     exportSettings = $('exportSettings'); exportProgress = $('exportProgress');
-    buyPanel = $('buyPanel'); wmRow = $('wmRow'); buyBtn = $('buyBtn');
+    buyPanel = $('buyPanel'); buyBtn = $('buyBtn');
+
+    // Проверка покупки асинхронная, поэтому кнопку сверяем дважды: сразу
+    // и когда license.js закончит разбирать ключ. Иначе купивший на миг
+    // увидел бы предложение купить снова.
+    syncBuyBtn();
+    if (typeof WBLicense !== 'undefined') WBLicense.ready.then(syncBuyBtn);
     exportStart = $('exportStart'); exportClose = $('exportClose');
 
     teardown();
