@@ -6,6 +6,8 @@
   garmin_export.zip  — вложенный ZIP с FIT-файлами
   huawei_export.zip  — motion path detail data.json в формате HiTrack
   plain.gpx          — одиночный файл
+  strava_big.zip     — 300 тренировок как в живой выгрузке (только с --big):
+                       на мелких фикстурах не видна цена обращений к файлу
   stress_export.zip  — 2500 тренировок + 200 МБ мусора (только с --stress):
                        проверка потоковой распаковки и памяти
 
@@ -265,6 +267,41 @@ def build():
         print(f"{f.name:22} {f.stat().st_size:>9,} байт")
 
 
+def build_big(count: int = 300) -> None:
+    """Архив Strava размером с настоящий: 300 тренировок по 900-3500 точек.
+
+    Ровно этот случай разбирался на телефоне две-три минуты. Мелкие фикстуры
+    такое не ловят: узкое место было не в объёме данных, а в числе обращений
+    к файлу, а оно растёт с числом записей в архиве.
+
+    ZIP_STORED намеренно: настоящая Strava не сжимает повторно уже сжатые
+    .gz, и распределение смещений в архиве должно быть таким же.
+    """
+    rows = [["Activity ID", "Activity Date", "Activity Name",
+             "Activity Type", "Elapsed Time", "Distance", "Filename"]]
+    day = datetime(2019, 1, 6, 7, 30, tzinfo=timezone.utc)
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_STORED) as z:
+        for i in range(count):
+            day += timedelta(days=2 + i % 3)
+            city = LYON if i < count * 0.37 else (PARIS if i < count * 0.73 else BARCELONA)
+            pts = loop(city[0] + (i % 7) * 0.003, city[1] + (i % 5) * 0.004,
+                       n=900 + (i % 6) * 520, phase=i * 0.41)
+            aid = 5000000000 + i
+            if i % 3 == 2:
+                raw, ext, sport = make_tcx(pts, day), "tcx", "Ride"
+            else:
+                raw, ext, sport = make_gpx(pts, day, f"Пробежка {i}"), "gpx", "Run"
+            fname = f"activities/{aid}.{ext}.gz"
+            z.writestr(fname, gzip.compress(raw, 6))
+            rows.append([str(aid), day.strftime("%b %d, %Y, %I:%M:%S %p"),
+                         f"Тренировка {i}", sport, str(len(pts)), "8.0", fname])
+        sio = io.StringIO()
+        csv.writer(sio, lineterminator="\n").writerows(rows)
+        z.writestr("activities.csv", sio.getvalue())
+    (OUT / "strava_big.zip").write_bytes(buf.getvalue())
+
+
 def build_stress(count: int = 2500) -> None:
     """Архив как у активного пользователя с многолетней историей.
 
@@ -293,3 +330,7 @@ def build_stress(count: int = 2500) -> None:
 
 if __name__ == "__main__":
     build()
+    if "--big" in sys.argv:
+        build_big()
+    if "--stress" in sys.argv:
+        build_stress()

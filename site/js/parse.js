@@ -576,6 +576,49 @@ const WBParse = (() => {
     };
   }
 
+  // Сколько байт держим в памяти за один заход и через какой пропуск
+  // ещё выгодно дочитать соседнюю запись, не начиная новый запрос.
+  const READ_CHUNK = 8 * 1024 * 1024;
+  const READ_GAP = 1 * 1024 * 1024;
+  // Запас на локальный заголовок: его дополнительное поле бывает длиннее,
+  // чем в центральном каталоге. Не хватило — запись дочитывается отдельно.
+  const LOCAL_SLACK = 4096;
+
+  // Данные записи из уже прочитанного куска. Возвращает null, если запись
+  // в кусок не поместилась — тогда её читают отдельным запросом.
+  function sliceEntry(it, buf, base) {
+    const off = it.lOff - base;
+    if (off < 0 || off + 30 > buf.length) return null;
+    const lv = new DataView(buf.buffer, buf.byteOffset + off, 30);
+    if (lv.getUint32(0, true) !== 0x04034b50) return null;
+    const from = off + 30 + lv.getUint16(26, true) + lv.getUint16(28, true);
+    if (from + it.csize > buf.length) return null;
+    return buf.subarray(from, from + it.csize);
+  }
+
+  async function readEntry(it, r) {
+    const lh = await r.read(it.lOff, it.lOff + 30);
+    if (lh.length < 30) return null;
+    const lv = new DataView(lh.buffer, lh.byteOffset, lh.byteLength);
+    if (lv.getUint32(0, true) !== 0x04034b50) return null;
+    const from = it.lOff + 30 + lv.getUint16(26, true) + lv.getUint16(28, true);
+    return r.read(from, from + it.csize);
+  }
+
+  // Чтение архива идёт по центральному каталогу: сначала собираем список
+  // нужных записей, потом читаем их пачками.
+  //
+  // Пачки — не преждевременная оптимизация, а разница между «работает» и
+  // «не работает» на телефоне. Обращение к File там идёт через поставщика
+  // контента Android и стоит сотни миллисекунд независимо от объёма. При
+  // чтении по записи архив Strava на 300 тренировок давал под семьсот
+  // обращений и разбирался две-три минуты, тогда как архив Garmin с тем же
+  // числом тренировок — за секунды: у Garmin тренировки лежат во вложенном
+  // ZIP, который читается целиком одним куском и дальше разбирается в
+  // памяти. Пачки дают Strava то же самое.
+  //
+  // Через большой пропуск не читаем: в выгрузке Garmin рядом с тренировками
+  // лежат сотни мегабайт данных сна, и тащить их в память незачем.
   async function zipEach(src, onEntry) {
     const r = makeReader(src);
     if (r.size < 22) return;
@@ -616,6 +659,8 @@ const WBParse = (() => {
     const dec = new TextDecoder();
     let p = 0;
 
+    // ---- первый проход: что вообще стоит читать
+    const items = [];
     for (let k = 0; k < count && p + 46 <= cd.length; k++) {
       if (cv.getUint32(p, true) !== 0x02014b50) break;
       const flags = cv.getUint16(p + 8, true);
@@ -651,24 +696,49 @@ const WBParse = (() => {
       if (usize > MAX_ENTRY) continue;
       if (!INTERESTING.test(name)) continue;
 
-      // В локальном заголовке свои длины имени и доп. поля — от них
-      // отсчитывается начало данных
-      const lh = await r.read(lOff, lOff + 30);
-      if (lh.length < 30) continue;
-      const lv = new DataView(lh.buffer, lh.byteOffset, lh.byteLength);
-      if (lv.getUint32(0, true) !== 0x04034b50) continue;
-      const dataOff = lOff + 30 + lv.getUint16(26, true) + lv.getUint16(28, true);
+      items.push({
+        name, lOff, csize, usize, method,
+        end: lOff + 30 + nLen + eLen + csize + LOCAL_SLACK
+      });
+    }
 
-      let out;
-      try {
-        const raw = await r.read(dataOff, dataOff + csize);
-        out = method === 0
-          ? raw
-          : fflate.inflateSync(raw, usize ? { out: new Uint8Array(usize) } : undefined);
-      } catch (e) {
-        continue;                                     // битая запись не рушит архив
+    // Порядок в каталоге может не совпадать с порядком в файле, а читать
+    // выгодно по возрастанию смещения
+    items.sort((a, b) => a.lOff - b.lOff);
+
+    // ---- второй проход: читаем пачками
+    let i = 0;
+    while (i < items.length) {
+      const base = items[i].lOff;
+      let j = i, end = items[i].end;
+      while (j + 1 < items.length) {
+        const nxt = items[j + 1];
+        if (nxt.lOff - end > READ_GAP) break;         // впереди чужие данные
+        if (nxt.end - base > READ_CHUNK) break;       // пачка набралась
+        j++; end = Math.max(end, nxt.end);
       }
-      await onEntry(name, out);
+
+      let buf = null;
+      try {
+        buf = await r.read(base, Math.min(end, r.size));
+      } catch (e) { /* читаем записи по одной ниже */ }
+
+      for (let k = i; k <= j; k++) {
+        const it = items[k];
+        let raw = buf ? sliceEntry(it, buf, base) : null;
+        try {
+          if (!raw) raw = await readEntry(it, r);      // не поместилась в пачку
+          if (!raw || raw.length < it.csize) continue;
+          const out = it.method === 0
+            ? raw
+            : fflate.inflateSync(raw, it.usize ? { out: new Uint8Array(it.usize) } : undefined);
+          await onEntry(it.name, out);
+        } catch (e) {
+          continue;                                   // битая запись не рушит архив
+        }
+      }
+      buf = null;                                     // кусок больше не нужен
+      i = j + 1;
     }
   }
 
