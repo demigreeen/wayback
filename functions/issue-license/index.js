@@ -37,7 +37,9 @@
                            при выдаче ключа, чтобы оплата другой суммы
                            не открывала доступ
      SITE_URL            — https://wayback.pro
-     SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, MAIL_FROM
+     SMTP                — строка подключения к почте, либо вместо неё
+                           SMTP_HOST + SMTP_PORT + SMTP_USER + SMTP_PASS
+     MAIL_FROM           — адрес отправителя
      OWNER_EMAIL         — куда слать копию каждого письма (необязательно)
    Подробности разворачивания — в README.md рядом с этим файлом.
 */
@@ -156,13 +158,35 @@ async function createPayment(email) {
 }
 
 // ---------------------------------------------------------------- почта
-async function sendLink(to, link) {
-  const transport = nodemailer.createTransport({
+// Настройки почты задаются одним из двух способов, потому что заводить
+// четыре отдельные переменные в консоли облака удаётся не всегда:
+//
+//   SMTP=smtps://имя%40ящик.ру:пароль@smtp.yandex.ru:465
+//   либо SMTP_HOST + SMTP_PORT + SMTP_USER + SMTP_PASS
+//
+// В строке подключения символ @ внутри имени пользователя записывается
+// как %40 — иначе разбор адреса споткнётся о второй @.
+function mailTransport() {
+  const url = (process.env.SMTP || '').trim();
+  if (url) {
+    if (!/^smtps?:\/\//i.test(url)) {
+      throw new Error('SMTP должен начинаться с smtps:// — сейчас там другое');
+    }
+    return nodemailer.createTransport(url);
+  }
+  if (!process.env.SMTP_HOST) {
+    throw new Error('Почта не настроена: нет ни SMTP, ни SMTP_HOST');
+  }
+  return nodemailer.createTransport({
     host: process.env.SMTP_HOST,
     port: Number(process.env.SMTP_PORT || 465),
     secure: true,
     auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS }
   });
+}
+
+async function sendLink(to, link) {
+  const transport = mailTransport();
   const text = [
     'Спасибо за покупку.',
     '',
@@ -176,7 +200,7 @@ async function sendLink(to, link) {
     'Ссылка личная, не публикуйте её.'
   ].join('\n');
   await transport.sendMail({
-    from: process.env.MAIL_FROM,
+    from: process.env.MAIL_FROM || process.env.SMTP_USER,
     to,
     bcc: process.env.OWNER_EMAIL || undefined,
     subject: 'WayBack — ваша ссылка',
