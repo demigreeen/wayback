@@ -1194,6 +1194,10 @@ const WBPlayer = (() => {
     $('buyBack').addEventListener('click', () => {
       exportOverlay.classList.remove('visible');
     });
+    $('buyGo').addEventListener('click', goToPayment);
+    $('buyEmail').addEventListener('keydown', e => {
+      if (e.key === 'Enter') goToPayment();
+    });
     exportStart.addEventListener('click', () => {
       runExport().catch(e => {
         exportOverlay.classList.remove('visible');
@@ -1235,14 +1239,43 @@ const WBPlayer = (() => {
     $('buyWas').textContent = p.was + ' ' + p.currency;
     $('buyNow').textContent = p.now + ' ' + p.currency;
 
-    const go = $('buyGo');
-    const soon = $('buySoon');
     const canPay = WBLicense.enabled();
-    go.hidden = !canPay;
-    soon.hidden = canPay;
-    if (canPay) {
-      go.textContent = 'Оплатить ' + p.now + ' ' + p.currency;
-      go.href = WBLicense.payUrl();
+    $('buyForm').hidden = !canPay;
+    $('buySoon').hidden = canPay;
+    if (!canPay) return;
+
+    $('buyGo').textContent = 'Оплатить ' + p.now + ' ' + p.currency;
+    $('buyError').hidden = true;
+  }
+
+  // Почта нужна дважды: на неё уйдёт ссылка и на неё же ЮKassa пришлёт чек.
+  // Спрашиваем её здесь, а не полагаемся на чек: так письмо уйдёт даже если
+  // у платежа почта окажется в другом поле.
+  async function goToPayment() {
+    const go = $('buyGo');
+    const err = $('buyError');
+    const email = $('buyEmail').value.trim();
+
+    const fail = text => { err.textContent = text; err.hidden = false; };
+    err.hidden = true;
+
+    if (!/^[^@\s]+@[^@\s.]+\.[^@\s]{2,}$/.test(email)) {
+      fail('Проверьте адрес почты — на неё придёт ссылка.');
+      $('buyEmail').focus();
+      return;
+    }
+
+    // Пока идёт запрос, кнопку надо запереть: второй щелчок создал бы
+    // второй платёж, и человек заплатил бы дважды.
+    const was = go.textContent;
+    go.disabled = true;
+    go.textContent = 'Открываем оплату…';
+    try {
+      location.href = await WBLicense.startPayment(email);
+    } catch (e) {
+      fail(e.message);
+      go.disabled = false;
+      go.textContent = was;
     }
   }
 

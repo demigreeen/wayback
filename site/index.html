@@ -269,7 +269,15 @@
           <li>Разовый платёж</li>
           <li>Ссылка придёт на почту и работает на любом вашем устройстве</li>
         </ul>
-        <a id="buyGo" class="buy-go" href="#" target="_blank" rel="noopener"></a>
+        <div id="buyForm" hidden>
+          <label class="buy-label" for="buyEmail">Почта для ссылки</label>
+          <input id="buyEmail" class="buy-input" type="email" inputmode="email"
+                 autocomplete="email" placeholder="вы@почта.ру"
+                 aria-describedby="buyEmailNote">
+          <div id="buyEmailNote" class="buy-hint">На неё придёт ссылка и чек</div>
+          <div id="buyError" class="buy-error" hidden></div>
+          <button id="buyGo" class="buy-go" type="button"></button>
+        </div>
         <div id="buySoon" class="buy-soon" hidden>
           Оплата подключается. Напишите на <span data-wb="email"></span> —
           вышлем ссылку вручную.

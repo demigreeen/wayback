@@ -513,7 +513,32 @@ body.in-player { overflow: hidden; }
   background: linear-gradient(180deg, var(--p-accent-hi), var(--p-accent));
   color: #fff; box-shadow: 0 4px 16px rgba(59, 130, 246, 0.4);
 }
-.buy-go:hover { filter: brightness(1.08); }
+.buy-go:hover:not(:disabled) { filter: brightness(1.08); }
+.buy-go:disabled { opacity: .6; cursor: default; }
+/* Кнопка оплаты — это <button>, а не ссылка: перед переходом надо создать
+   платёж. Поэтому её нужно вернуть к общему виду кнопок плеера вручную. */
+#player button.buy-go { width: 100%; border: none; }
+
+.buy-label {
+  display: block; font-size: 12.5px; color: var(--p-dim); margin-bottom: 6px;
+}
+.buy-input {
+  width: 100%; height: 44px; padding: 0 14px; margin-bottom: 6px;
+  font: inherit; font-size: 15px; color: var(--p-text);
+  background: rgba(255,255,255,0.06); border: 1px solid var(--p-border);
+  border-radius: 10px;
+}
+.buy-input:focus {
+  outline: none; border-color: var(--p-accent);
+  background: rgba(59, 130, 246, 0.10);
+}
+.buy-input::placeholder { color: #6b7280; }
+.buy-hint { font-size: 12px; color: var(--p-dim); margin-bottom: 14px; }
+.buy-error {
+  font-size: 13px; color: #fca5a5; margin-bottom: 12px;
+  background: rgba(185, 28, 28, 0.18); border: 1px solid rgba(248, 113, 113, 0.35);
+  border-radius: 9px; padding: 9px 12px;
+}
 
 /* Состояние «оплата ещё не подключена»: вместо кнопки в никуда — почта,
    по которой ключ выдаётся вручную. Путь рабочий, поэтому и оформлен

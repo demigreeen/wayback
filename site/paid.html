@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Оплата — WayBack</title>
+<meta name="robots" content="noindex">
+<link rel="stylesheet" href="css/app.css?v=dev">
+</head>
+<body>
+
+<!--
+  Сюда ЮKassa возвращает покупателя после страницы оплаты — и при успехе,
+  и при отмене. Страница намеренно ничего не утверждает про итог платежа:
+  проверить его она не может, а обещать успех, которого не было, хуже,
+  чем не обещать ничего. Настоящий ответ приходит письмом, которое
+  отправляет облачная функция, получив подтверждение от ЮKassa.
+-->
+
+<header class="site-header">
+  <div class="wrap">
+    <a class="logo" href="./">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"
+        fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="3"
+        fill="currentColor"/></svg>
+      Way<span>Back</span>
+    </a>
+    <nav><a href="./">На главную</a></nav>
+  </div>
+</header>
+
+<main class="doc">
+  <div class="wrap narrow">
+    <h1>Проверьте почту</h1>
+
+    <p>Если оплата прошла, письмо со ссылкой придёт на адрес, который вы
+    указали. Обычно это занимает минуту, но по условиям мы закладываем
+    до суток — так что если письма пока нет, это нормально.</p>
+
+    <p><b>Сохраните письмо.</b> Ссылка из него бессрочная и работает
+    на любом вашем устройстве: достаточно открыть её в том браузере,
+    где вы делаете видео. Если браузер очистит данные, перейдите
+    по ней снова.</p>
+
+    <h2>Письмо не пришло</h2>
+    <p>Сначала загляните в папку «Спам» — письма от новых отправителей
+    часто попадают туда.</p>
+    <p>Если и там пусто, напишите на <span data-wb="email"></span>.
+    Укажите адрес, с которого платили, и примерное время — этого хватит,
+    чтобы найти платёж и выслать ссылку вручную.</p>
+
+    <h2>Оплата не прошла</h2>
+    <p>Деньги не спишутся. Вернитесь в плеер и попробуйте ещё раз —
+    кнопка на прежнем месте, рядом со «Скачать видео».</p>
+
+    <p class="price-docs">Условия — в <a href="oferta.html">публичной оферте</a>,
+    в том числе порядок <a href="oferta.html#req">возврата</a>.</p>
+  </div>
+</main>
+
+<footer class="site-footer" id="siteFooter"></footer>
+
+<script src="js/contacts.js?v=dev"></script>
+<script src="js/license.js?v=dev"></script>
+<script src="js/footer.js?v=dev"></script>
+</body>
+</html>
