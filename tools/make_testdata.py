@@ -42,14 +42,29 @@ def loop(base_lat, base_lon, n=80, r=0.009, phase=0.0):
 
 
 # ----------------------------------------------------------------- GPX / TCX
-def make_gpx(pts, start: datetime, name: str) -> bytes:
+def make_gpx(pts, start: datetime, name: str, step: int = 1) -> bytes:
+    """GPX в том виде, в каком его отдаёт Strava.
+
+    Высота, время и расширения с пульсом на каждой точке — не украшательство:
+    именно из-за них файл часового занятия весит под мегабайт. На маленьких
+    фикстурах разбор был мгновенным и в замер не попадал, а на настоящем
+    архиве упирался в построение DOM.
+    """
     rows = []
     for i, (lat, lon) in enumerate(pts):
-        t = (start + timedelta(seconds=i * 8)).strftime("%Y-%m-%dT%H:%M:%SZ")
-        rows.append(f'<trkpt lat="{lat:.6f}" lon="{lon:.6f}"><time>{t}</time></trkpt>')
+        t = (start + timedelta(seconds=i * step)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        rows.append(
+            '  <trkpt lat="%.7f" lon="%.7f">\n'
+            "   <ele>%.1f</ele>\n"
+            "   <time>%s</time>\n"
+            "   <extensions><gpxtpx:TrackPointExtension>"
+            "<gpxtpx:hr>%d</gpxtpx:hr><gpxtpx:cad>%d</gpxtpx:cad>"
+            "</gpxtpx:TrackPointExtension></extensions>\n"
+            "  </trkpt>"
+            % (lat, lon, 144 + 8 * math.sin(i / 40), t, 120 + i % 40, 80 + i % 12))
     body = "\n".join(rows)
     return f"""<?xml version="1.0" encoding="UTF-8"?>
-<gpx version="1.1" creator="WayBack test" xmlns="http://www.topografix.com/GPX/1/1">
+<gpx version="1.1" creator="StravaGPX" xmlns="http://www.topografix.com/GPX/1/1" xmlns:gpxtpx="http://www.garmin.com/xmlschemas/TrackPointExtension/v1">
  <metadata><time>{start.strftime('%Y-%m-%dT%H:%M:%SZ')}</time></metadata>
  <trk><name>{name}</name><type>running</type><trkseg>
 {body}
@@ -62,8 +77,8 @@ def make_tcx(pts, start: datetime, sport: str = "Biking") -> bytes:
     dist = 0.0
     for i, (lat, lon) in enumerate(pts):
         if i:
-            dist += 40.0
-        t = (start + timedelta(seconds=i * 8)).strftime("%Y-%m-%dT%H:%M:%SZ")
+            dist += 3.2
+        t = (start + timedelta(seconds=i)).strftime("%Y-%m-%dT%H:%M:%SZ")
         rows.append(
             f"<Trackpoint><Time>{t}</Time>"
             f"<Position><LatitudeDegrees>{lat:.6f}</LatitudeDegrees>"
@@ -186,8 +201,11 @@ def build():
         for i in range(30):
             day += timedelta(days=3 + i % 4)
             city = LYON if i < 12 else (PARIS if i < 22 else BARCELONA)
+            # Трекер пишет точку раз в секунду: занятие от четверти часа
+            # до полутора. Скорость разбора архива Strava определяется
+            # объёмом точек, а не числом файлов.
             pts = loop(city[0] + (i % 5) * 0.004, city[1] + (i % 3) * 0.006,
-                       phase=i * 0.7)
+                       n=900 + (i % 5) * 700, phase=i * 0.7)
             aid = 4000000000 + i
             if i % 3 == 0:
                 raw, ext, sport = make_gpx(pts, day, f"Run {i}"), "gpx", "Run"
@@ -198,7 +216,7 @@ def build():
             fname = f"activities/{aid}.{ext}.gz"
             z.writestr(fname, gzip.compress(raw))
             rows.append([str(aid), day.strftime("%b %d, %Y, %I:%M:%S %p"),
-                         f"Тренировка {i}", sport, "3600", "8.0", fname])
+                         f"Тренировка {i}", sport, str(len(pts)), "8.0", fname])
         sio = io.StringIO()
         csv.writer(sio, lineterminator="\n").writerows(rows)
         z.writestr("activities.csv", sio.getvalue())

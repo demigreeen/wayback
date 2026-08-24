@@ -85,13 +85,128 @@ const WBParse = (() => {
   }
 
   // ------------------------------------------------------------ GPX / TCX
+  //
+  // Разбор идёт сканированием текста, а не через DOMParser. Причина —
+  // цена дерева: в часовой пробежке Strava около 3600 точек, у каждой ещё
+  // высота, время и расширения с пульсом, то есть порядка 50 тысяч узлов
+  // на файл. Замер на GPX в 883 КБ: DOM — 31 мс, сканирование — 1 мс.
+  // На телефоне разрыв тот же, но в абсолютных числах он превращал разбор
+  // архива Strava в полторы тренировки в секунду.
+  //
+  // От файла нам нужны координаты, время старта, название и вид спорта.
+  // Строить ради них дерево незачем. DOM остаётся запасным путём: если
+  // сканер ничего не нашёл, а точки в тексте есть, файл разбирается
+  // по-старому.
+
+  // Атрибуты могут идти в любом порядке и в любых кавычках, тег — с
+  // префиксом пространства имён. Опережающие проверки разбирают тег
+  // целиком и потому не зависят от порядка lat и lon.
+  const RE_TRKPT = /<(?:\w+:)?trkpt\b(?=[^>]*\blat\s*=\s*["']([^"']*)["'])(?=[^>]*\blon\s*=\s*["']([^"']*)["'])/g;
+  const RE_HAS_TRKPT = /<(?:\w+:)?trkpt\b/;
+  const RE_TIME = /<(?:\w+:)?time>([^<]+)<\/(?:\w+:)?time>/gi;
+  const RE_TRK = /<(?:\w+:)?trk\b[^>]*>/;
+  const RE_GPX = /<(?:\w+:)?gpx\b/i;
+  const RE_TCX = /<(?:\w+:)?TrainingCenterDatabase\b/i;
+  const RE_LATLON = /<(?:\w+:)?LatitudeDegrees>\s*([^<\s]+)\s*<\/(?:\w+:)?LatitudeDegrees>\s*<(?:\w+:)?LongitudeDegrees>\s*([^<\s]+)\s*</g;
+  const RE_HAS_LATLON = /<(?:\w+:)?LatitudeDegrees>/;
+  const RE_DIST = /<(?:\w+:)?DistanceMeters>\s*([^<\s]+)/g;
+  const RE_SPORT = /<(?:\w+:)?Activity\b[^>]*\bSport\s*=\s*["']([^"']*)["']/;
+  const RE_LAP_START = /<(?:\w+:)?Lap\b[^>]*\bStartTime\s*=\s*["']([^"']*)["']/;
+  const RE_NAME = /<(?:\w+:)?name>([^<]*)</;
+  const RE_TYPE = /<(?:\w+:)?type>([^<]*)</;
+
+  // Первое время, встреченное начиная с позиции from
+  function timeFrom(text, from) {
+    RE_TIME.lastIndex = Math.max(0, from);
+    const m = RE_TIME.exec(text);
+    if (!m) return null;
+    const v = Date.parse(m[1].trim());
+    return isFinite(v) ? v : null;
+  }
+
   function parseXMLTrack(text) {
+    const head = text.slice(0, 2048);
+    if (RE_GPX.test(head)) return scanGPX(text) || viaDOM(text, RE_HAS_TRKPT, parseGPXDoc);
+    if (RE_TCX.test(head)) return scanTCX(text) || viaDOM(text, RE_HAS_LATLON, parseTCXDoc);
+    return null;
+  }
+
+  // Дерево строим, только если точки в тексте есть, а сканер их не увидел:
+  // платить за DOM ради файла, в котором трека нет вовсе, незачем.
+  function viaDOM(text, hasPoints, parseDoc) {
+    if (!hasPoints.test(text)) return null;
     const doc = new DOMParser().parseFromString(text, 'application/xml');
     if (doc.getElementsByTagName('parsererror').length) return null;
-    const root = doc.documentElement.localName;
-    if (root === 'gpx') return parseGPXDoc(doc);
-    if (root === 'TrainingCenterDatabase') return parseTCXDoc(doc);
-    return null;
+    return parseDoc(doc);
+  }
+
+  function scanGPX(text) {
+    const pts = [];
+    RE_TRKPT.lastIndex = 0;
+    let m;
+    while ((m = RE_TRKPT.exec(text))) {
+      // Пустая строка даёт 0, а не NaN, поэтому проверяется отдельно
+      if (m[1] === '' || m[2] === '') continue;
+      const lat = +m[1], lon = +m[2];
+      if (lat === lat && lon === lon) pts.push([lat, lon]);
+    }
+    if (pts.length < 2) return null;
+
+    // Время старта берём у первой точки. metadata/time — запасной вариант:
+    // у части выгрузок там время создания файла, а не начала тренировки.
+    const first = text.search(RE_HAS_TRKPT);
+    let ts = timeFrom(text, first);
+    if (ts === null && first > 0) ts = timeFrom(text, 0);
+
+    // Название и вид ищем между <trk> и <trkseg>: теги с теми же именами
+    // есть и в metadata, и внутри точек.
+    let name = null, type = null;
+    const mt = RE_TRK.exec(text);
+    if (mt) {
+      const from = mt.index + mt[0].length;
+      const seg = text.indexOf('<trkseg', from);
+      const info = text.slice(from, seg > from ? seg : Math.min(from + 2048, text.length));
+      const mn = RE_NAME.exec(info); if (mn) name = mn[1].trim();
+      const mp = RE_TYPE.exec(info); if (mp) type = mp[1].trim();
+    }
+    return { pts, ts, name, type };
+  }
+
+  function scanTCX(text) {
+    const pts = [];
+    RE_LATLON.lastIndex = 0;
+    let m;
+    while ((m = RE_LATLON.exec(text))) {
+      const lat = +m[1], lon = +m[2];
+      if (lat === lat && lon === lon) pts.push([lat, lon]);
+    }
+    if (pts.length < 2) return null;
+
+    const ms = RE_SPORT.exec(text);
+    const type = ms ? ms[1] : null;
+
+    let ts = timeFrom(text, 0);
+    if (ts === null) {
+      const ml = RE_LAP_START.exec(text);
+      if (ml) { const v = Date.parse(ml[1]); if (isFinite(v)) ts = v; }
+    }
+
+    // Суммарная дистанция — в последнем DistanceMeters: у точек он
+    // накопительный, так что последний и есть итог. Ищем по хвосту файла,
+    // полный проход — только если в хвосте не нашлось.
+    const lastDist = str => {
+      let mm, v = null;
+      RE_DIST.lastIndex = 0;
+      while ((mm = RE_DIST.exec(str))) v = mm[1];
+      return v;
+    };
+    let distM = null;
+    const raw = lastDist(text.slice(-8192)) || lastDist(text);
+    if (raw !== null) {
+      const v = parseFloat(raw);
+      if (isFinite(v) && v > 0) distM = v;
+    }
+    return { pts, ts, name: null, type, distM };
   }
 
   function parseGPXDoc(doc) {
