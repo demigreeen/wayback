@@ -412,6 +412,72 @@ body.in-player { overflow: hidden; }
   background: transparent !important; color: var(--p-dim) !important;
   border: none !important; }
 
+/* ─────────────────── покупка: снятие подписи ─────────────────── */
+/* Строка живёт в настройках экспорта последней: подпись — последнее,
+   о чём человек думает перед тем, как нажать «Начать рендер». */
+.wm-row { margin-top: 18px; padding-top: 16px;
+  border-top: 1px solid var(--p-border); }
+.wm-row.paid > span { color: var(--p-text); }
+.buy-btn {
+  width: auto !important; height: 34px; padding: 0 16px !important;
+  font-size: 13px !important; font-weight: 700 !important;
+  border-radius: 9px !important; white-space: nowrap;
+  background: linear-gradient(180deg, var(--p-accent-hi), var(--p-accent)) !important;
+  color: #fff !important; border: none !important;
+  box-shadow: 0 2px 10px rgba(59, 130, 246, 0.35);
+}
+.buy-btn:hover { filter: brightness(1.08); }
+.buy-btn .old { opacity: .65; text-decoration: line-through; margin: 0 6px;
+  font-weight: 600; }
+.buy-btn:disabled {
+  background: none !important; box-shadow: none; opacity: 1;
+  color: var(--p-accent-hi) !important; padding: 0 !important;
+  font-weight: 600 !important; cursor: default;
+}
+
+#buyPanel { text-align: left; max-width: 380px; }
+.buy-title { font-size: 20px; font-weight: 800; color: var(--p-text);
+  text-align: center; letter-spacing: -0.01em; }
+.buy-price { display: flex; align-items: baseline; justify-content: center;
+  gap: 12px; margin-top: 14px; }
+.buy-price s { font-size: 20px; color: var(--p-dim); text-decoration-thickness: 2px; }
+.buy-price b { font-size: 40px; font-weight: 800; color: var(--p-accent-hi);
+  letter-spacing: -0.02em; }
+.buy-badge { text-align: center; font-size: 12px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: .08em; color: var(--p-accent);
+  margin-top: 2px; }
+.buy-list { list-style: none; padding: 0; margin: 22px 0 24px; }
+.buy-list li { position: relative; padding-left: 26px; margin-bottom: 11px;
+  font-size: 13.5px; line-height: 1.5; color: var(--p-dim); }
+.buy-list li b { color: var(--p-text); font-weight: 600; }
+.buy-list li::before {
+  content: ''; position: absolute; left: 4px; top: 7px;
+  width: 6px; height: 6px; border-radius: 50%; background: var(--p-accent);
+}
+.buy-go {
+  display: block; height: 46px; line-height: 46px; text-align: center;
+  border-radius: 11px; font-size: 15px; font-weight: 700; text-decoration: none;
+  background: linear-gradient(180deg, var(--p-accent-hi), var(--p-accent));
+  color: #fff; box-shadow: 0 4px 16px rgba(59, 130, 246, 0.4);
+}
+.buy-go:hover { filter: brightness(1.08); }
+#buyBack { width: 100% !important; height: 38px; font-size: 13px !important;
+  margin-top: 10px; background: transparent !important;
+  color: var(--p-dim) !important; border: none !important; }
+
+/* Сообщение о принятой ссылке. Появляется на любой странице сайта:
+   покупатель приходит по ссылке из письма на главную, а не в плеер. */
+.wb-toast {
+  position: fixed; left: 50%; top: 18px; transform: translate(-50%, -14px);
+  z-index: 4000; max-width: min(92vw, 460px);
+  padding: 13px 20px; border-radius: 12px;
+  background: var(--ink); color: #fff; font-size: 14px; font-weight: 600;
+  box-shadow: 0 10px 40px rgba(15, 23, 42, 0.35);
+  opacity: 0; transition: opacity .3s ease, transform .3s ease;
+}
+.wb-toast.in { opacity: 1; transform: translate(-50%, 0); }
+.wb-toast.warn { background: #b45309; }
+
 /* ───────────────────────── адаптив ───────────────────────── */
 @media (max-width: 860px) {
   .cards, .formats-grid { grid-template-columns: 1fr 1fr; }

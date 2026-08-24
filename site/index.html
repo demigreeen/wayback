@@ -256,8 +256,28 @@
             <button data-v="60" type="button">60</button>
           </div>
         </div>
+        <div class="exp-row wm-row" id="wmRow" hidden>
+          <span>Подпись в кадре</span>
+          <button id="buyBtn" class="buy-btn" type="button"></button>
+        </div>
         <button id="exportStart" type="button">Начать рендер</button>
         <button id="exportClose" type="button">Отмена</button>
+      </div>
+
+      <div id="buyPanel" hidden>
+        <div class="buy-title">Видео без подписи</div>
+        <div class="buy-price">
+          <s id="buyWas"></s><b id="buyNow"></b>
+        </div>
+        <div class="buy-badge">цена запуска</div>
+        <ul class="buy-list">
+          <li>В углу кадра не будет надписи <b>wayback.pro</b></li>
+          <li>Действует на все ваши видео, сколько бы вы их ни сделали</li>
+          <li>Разовый платёж, без подписки и без аккаунта</li>
+          <li>Ссылка придёт на почту и работает на любом вашем устройстве</li>
+        </ul>
+        <a id="buyGo" class="buy-go" href="#" target="_blank" rel="noopener"></a>
+        <button id="buyBack" type="button">Назад</button>
       </div>
       <div id="exportProgress" style="display:none">
         <div id="exportPct">0%</div>
@@ -273,6 +293,7 @@
 <script src="js/vendor/fflate.min.js"></script>
 <script src="js/vectormap.js"></script>
 <script src="js/cities.js"></script>
+<script src="js/license.js"></script>
 <script src="js/parse.js"></script>
 <script src="js/player.js"></script>
 <script src="js/app.js"></script>

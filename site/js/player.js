@@ -256,6 +256,7 @@ const WBPlayer = (() => {
   let shownCountEl, currentDateEl, currentNameEl, cumKmEl, counterEl, liveCanvas;
   let exportOverlay, exportPct, exportBarFill, exportStatus, exportCancel;
   let exportSettings, exportProgress, exportStart, exportClose;
+  let buyPanel, wmRow, buyBtn;
 
   // ---------------------------------------------------------------- геометрия шагов
   const delayMs = () => parseInt(speedSelect.value, 10);
@@ -563,7 +564,9 @@ const WBPlayer = (() => {
         ctx.fillText(`${placedN} / ${N} · ${km} км`, 44 * k, 152 * k);
       }
 
-      // водяной знак сайта
+      // Водяной знак сайта. Он же — канал привлечения: бесплатное видео
+      // уходит в соцсети с адресом в углу. Снимается покупкой.
+      if (typeof WBLicense !== 'undefined' && WBLicense.isPaid()) return;
       ctx.textAlign = 'right';
       ctx.font = `700 ${15 * k}px "Segoe UI", Arial`;
       ctx.fillStyle = 'rgba(255,255,255,0.62)';
@@ -1093,8 +1096,7 @@ const WBPlayer = (() => {
 
   async function runExport() {
     exportAbort = false;
-    exportSettings.style.display = 'none';
-    exportProgress.style.display = 'block';
+    showExportView('progress');
     setExportProgress(0, 'Подготовка...');
     const [w, h] = FRAMES[selOrient][selQuality];
     const bitrate = BITRATES[selQuality];
@@ -1170,10 +1172,11 @@ const WBPlayer = (() => {
     }
     videoBtn.addEventListener('click', () => {
       pause();
-      exportSettings.style.display = 'block';
-      exportProgress.style.display = 'none';
+      showExportView('settings');
       exportOverlay.classList.add('visible');
     });
+    buyBtn.addEventListener('click', () => showExportView('buy'));
+    $('buyBack').addEventListener('click', () => showExportView('settings'));
     exportStart.addEventListener('click', () => {
       runExport().catch(e => {
         exportOverlay.classList.remove('visible');
@@ -1187,6 +1190,43 @@ const WBPlayer = (() => {
       $('player').hidden = true;
       document.body.classList.remove('in-player');
     });
+  }
+
+  // В окне экспорта три вида: настройки, покупка, ход рендера.
+  function showExportView(which) {
+    exportSettings.style.display = which === 'settings' ? 'block' : 'none';
+    buyPanel.hidden = which !== 'buy';
+    exportProgress.style.display = which === 'progress' ? 'block' : 'none';
+    if (which === 'settings') syncBuyRow();
+  }
+
+  // Строка про подпись показывается, только когда покупку действительно
+  // можно совершить: ссылка на оплату задана в license.js. Иначе посетитель
+  // упёрся бы в кнопку, которая никуда не ведёт.
+  function syncBuyRow() {
+    if (typeof WBLicense === 'undefined') { wmRow.hidden = true; return; }
+    const p = WBLicense.price();
+    const paid = WBLicense.isPaid();
+
+    // Строку показываем либо когда покупка уже есть, либо когда её можно
+    // совершить. Кнопка без работающей ссылки на оплату — тупик, поэтому
+    // до появления ссылки в license.js строки нет вовсе.
+    wmRow.hidden = !paid && !WBLicense.enabled();
+    if (wmRow.hidden) return;
+
+    wmRow.classList.toggle('paid', paid);
+    buyBtn.disabled = paid;
+    if (paid) {
+      buyBtn.textContent = 'отключена';
+      return;
+    }
+    buyBtn.innerHTML = 'Убрать за <span class="old">' + p.was + '</span>' +
+      p.now + ' ' + p.currency;
+    $('buyWas').textContent = p.was + ' ' + p.currency;
+    $('buyNow').textContent = p.now + ' ' + p.currency;
+    const go = $('buyGo');
+    go.textContent = 'Оплатить ' + p.now + ' ' + p.currency;
+    go.href = WBLicense.payUrl();
   }
 
   // Повторный запуск (пользователь вернулся и загрузил другой архив):
@@ -1219,6 +1259,7 @@ const WBPlayer = (() => {
     exportBarFill = $('exportBarFill'); exportStatus = $('exportStatus');
     exportCancel = $('exportCancel');
     exportSettings = $('exportSettings'); exportProgress = $('exportProgress');
+    buyPanel = $('buyPanel'); wmRow = $('wmRow'); buyBtn = $('buyBtn');
     exportStart = $('exportStart'); exportClose = $('exportClose');
 
     teardown();
