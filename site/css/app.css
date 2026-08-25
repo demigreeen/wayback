@@ -534,17 +534,42 @@ body.in-player { overflow: hidden; }
 }
 #player.light #exportBox { box-shadow: 0 20px 60px rgba(15, 23, 42, 0.25); }
 #player.light #exportOverlay { background: rgba(226, 232, 240, 0.92); }
-#player.light .seg button,
-#player.light #player select,
+/* :not(.sel) обязателен. Без него правило с !important и селектором
+   с идентификатором перебивало заливку выбранной кнопки — выбранный
+   формат и качество выглядели невыбранными, и переключение казалось
+   сломанным. */
+#player.light .seg button:not(.sel),
 #player.light .buy-input {
   background: rgba(15, 23, 42, 0.05) !important;
 }
 #player.light #exportBar { background: rgba(15, 23, 42, 0.10); }
+
+/* Выпадающие списки в панели плеера. Раскрытый список рисует система,
+   и цвет пунктов задаётся отдельно от самого поля: без этого правила
+   на светлой теме открывался тёмный список. */
+#player.light select {
+  background: rgba(15, 23, 42, 0.05);
+  color: var(--p-text);
+  border-color: var(--p-border);
+}
+#player.light select option { background: #ffffff; color: var(--p-text); }
+
 /* Подпись-заглушка «оплата подключается» и ошибки — на светлом свои */
 #player.light .buy-soon { color: var(--p-dim); }
 #player.light .buy-error {
   color: #b91c1c; background: #fef2f2; border-color: #fecaca;
 }
+
+/* Панель готового видео. Серый по светлому сливался, поэтому
+   вспомогательный текст здесь заметно темнее общего --p-dim. */
+#player.light .res-meta { color: #475569; }
+#player.light .res-hint {
+  color: #334155;
+  background: #f1f5f9;
+  border-color: #cbd5e1;
+}
+#player.light button#resultClose { color: #475569; }
+#player.light button#resultClose:hover { color: var(--p-accent); }
 
 /* ─────────────────── покупка: снятие подписи ─────────────────── */
 /* Кнопка покупки стоит в панели плеера рядом со «Скачать видео».

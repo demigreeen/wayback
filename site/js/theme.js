@@ -106,12 +106,14 @@ const WBTheme = (() => {
 
   const THEMES = { dark: DARK, light: LIGHT };
 
+  // По умолчанию светлая: сайт вокруг белый, и тёмный плеер после белого
+  // лендинга читался как чужая страница. Тёмная остаётся выбором.
   let current = (() => {
     try {
       const saved = localStorage.getItem(STORE);
       if (saved && THEMES[saved]) return THEMES[saved];
-    } catch (e) { /* приватный режим — просто тёмная */ }
-    return DARK;
+    } catch (e) { /* приватный режим — просто светлая */ }
+    return LIGHT;
   })();
 
   const listeners = [];

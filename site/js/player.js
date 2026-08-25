@@ -1002,9 +1002,12 @@ const WBPlayer = (() => {
   // Поделиться файлом умеют не все: на настольных браузерах такого обычно
   // нет вовсе. Спрашиваем не «телефон ли это», а умеет ли браузер отдать
   // именно файл — проверка по возможности честнее проверки по устройству.
+  // Настольный Chrome тоже отвечает, что умеет делиться файлом, но окно
+  // открывается урезанное или не открывается вовсе. Поэтому к проверке
+  // возможности добавлена проверка устройства: на компьютере кнопки нет.
   function canShareFile(file) {
-    return !!(navigator.canShare && navigator.share &&
-              navigator.canShare({ files: [file] }));
+    return isMobile() && !!(navigator.canShare && navigator.share &&
+                            navigator.canShare({ files: [file] }));
   }
 
   function showResult(blob, name) {
@@ -1211,27 +1214,33 @@ const WBPlayer = (() => {
     const [w, h] = FRAMES[exportOrient][selQuality];
     const bitrate = BITRATES[selQuality];
     try {
+      let done = false;
       if (window.VideoEncoder) {
         try {
           await exportWebCodecs(w, h, selFps, bitrate);
-          return;
+          done = true;
         } catch (e) {
-          if (exportAbort) return;
-          console.warn('WebCodecs недоступен, запасной способ:', e);
+          if (!exportAbort) console.warn('WebCodecs недоступен, запасной способ:', e);
         }
       }
-      if (!window.MediaRecorder) {
-        alert('Ваш браузер не поддерживает запись видео. Попробуйте Chrome или Edge.');
-        return;
+      if (!done && !exportAbort) {
+        if (!window.MediaRecorder) {
+          alert('Ваш браузер не поддерживает запись видео. Попробуйте Chrome или Edge.');
+          showExportView('settings');
+          return;
+        }
+        await exportRealtime(w, h);
       }
-      await exportRealtime(w, h);
     } catch (e) {
       exportOverlay.classList.remove('visible');
       throw e;
     }
-    // Окно не закрываем: в нём показывается готовое видео. Закрыть его
-    // должен человек — кнопкой, уже посмотрев результат.
-    if (exportAbort) exportOverlay.classList.remove('visible');
+
+    // Отмена возвращает к настройкам, а не оставляет висеть на прогрессе:
+    // человек нажал «Отмена», чтобы что-то поменять и запустить заново.
+    // Раньше здесь стоял return из середины try — управление сюда
+    // не доходило, и окно замирало на полосе прогресса.
+    if (exportAbort) showExportView('settings');
   }
 
   // ---------------------------------------------------------------- инициализация
@@ -1262,9 +1271,15 @@ const WBPlayer = (() => {
       previewOrient = v;
       pause(); live = null; render(placed);
     });
-    // Кнопки в окне экспорта меняют то, что уйдёт в файл
+    // Кнопки в окне экспорта меняют то, что уйдёт в файл. Подсветку
+    // переносим здесь же: без неё нажатие ничего не меняло на вид,
+    // и выбор выглядел сломанным.
     $('segO').querySelectorAll('button').forEach(btn => {
-      btn.addEventListener('click', () => { exportOrient = btn.dataset.v; });
+      btn.addEventListener('click', () => {
+        exportOrient = btn.dataset.v;
+        $('segO').querySelectorAll('button').forEach(b =>
+          b.classList.toggle('sel', b === btn));
+      });
     });
 
     bindSeg($('segQ'), v => { selQuality = v; });
