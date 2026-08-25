@@ -209,6 +209,8 @@
   <div id="controls">
     <button id="playBtn" title="Играть / Пауза" type="button">▶</button>
     <button class="secondary" id="resetBtn" title="Сначала" type="button">⟲</button>
+    <button class="secondary" id="themeBtn" title="Светлая или тёмная карта"
+            type="button" aria-pressed="false">☾</button>
     <input type="range" id="slider" min="0" max="0" value="0" step="1">
     <select id="orient" title="Формат кадра">
       <option value="portrait" selected>Вертикально 9:16</option>
@@ -285,6 +287,17 @@
         <a class="buy-terms" href="oferta.html" target="_blank" rel="noopener">Условия покупки</a>
         <button id="buyBack" type="button">Назад</button>
       </div>
+      <div id="resultPanel" hidden>
+        <div class="res-title">Видео готово</div>
+        <video id="resultVideo" class="res-video" playsinline controls loop
+               preload="metadata"></video>
+        <div id="resultMeta" class="res-meta"></div>
+        <button id="resultSave" class="res-save" type="button">Сохранить видео</button>
+        <button id="resultShare" class="res-share" type="button" hidden>Поделиться</button>
+        <div id="resultHint" class="res-hint" hidden></div>
+        <button id="resultClose" type="button">Закрыть</button>
+      </div>
+
       <div id="exportProgress" style="display:none">
         <div id="exportPct">0%</div>
         <div id="exportBar"><div id="exportBarFill"></div></div>
@@ -295,6 +308,7 @@
   </div>
 </div>
 
+<script src="js/theme.js?v=dev"></script>
 <script src="js/vendor/leaflet.js?v=dev"></script>
 <script src="js/vendor/fflate.min.js?v=dev"></script>
 <script src="js/vectormap.js?v=dev"></script>

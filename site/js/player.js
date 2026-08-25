@@ -20,9 +20,11 @@
 
 const WBPlayer = (() => {
 
-  const ACCENT     = '#3b82f6';
-  const ACCENT_HI  = '#60a5fa';
-  const BG         = '#0b0e14';
+  // Цвета кадра живут в theme.js вместе с цветами карты: подбирать их
+  // порознь нельзя, иначе при смене темы след и карта разъезжаются.
+  // Читаем функциями — тема меняется на лету, значение нужно на момент
+  // отрисовки, а не на момент загрузки файла.
+  const F = () => WBTheme.frame();
   const FOLLOW_ZOOM = 13;
   const FAR_METERS = 25000;
   const BURST_MS   = 700;
@@ -220,6 +222,7 @@ const WBPlayer = (() => {
   let ACTS = [], PTS = [], N = 0, CUM_KM = [], bounds = null, DATE_RANGE = '';
   let GEO_SUMMARY = '';         // «5 городов · 2 страны» для финального кадра
   let map = null, trailGlow = null, trail = null, dotsLayer = null, headMarker = null;
+  let gridLayer = null;          // слой карты Leaflet — перерисовывается при смене темы
   let placed = 0;
   const committedLL = [];
   const dotMarkers = [];
@@ -235,7 +238,18 @@ const WBPlayer = (() => {
     landscape: { 480: [854, 480],  720: [1280, 720],  1080: [1920, 1080], ratio: 16 / 9 }
   };
   const BITRATES = { 480: 3_000_000, 720: 6_000_000, 1080: 10_000_000 };
-  let selOrient = 'portrait', selQuality = 1080, selFps = 30;
+  // Ориентация превью и ориентация выгрузки разведены намеренно.
+  //
+  // Смотрят на том экране, который есть: на компьютере широкий кадр занимает
+  // окно целиком, вертикальный оставил бы чёрные поля по бокам. А делятся
+  // вертикальным — именно он идёт в истории и ленты. Раньше это была одна
+  // величина, и приходилось выбирать, чем пожертвовать.
+  //
+  // Расхождение теперь безопасно: после рендера показывается готовое видео,
+  // так что человек видит результат до того, как скачает.
+  let previewOrient = 'portrait';
+  let exportOrient = 'portrait';
+  let selQuality = 1080, selFps = 30;
 
   // Телефон определяем по типу указателя, а не по ширине окна: узкое окно
   // на десктопе рендерит 1080p нормально, а планшет с мышью — тоже
@@ -245,7 +259,7 @@ const WBPlayer = (() => {
   // Размер кадра живого превью: тот же кадр, что уйдёт в видео, вписанный в окно
   function frameSize() {
     const vw = Math.max(320, window.innerWidth), vh = Math.max(240, window.innerHeight);
-    const r = FRAMES[selOrient].ratio;           // ширина / высота
+    const r = FRAMES[previewOrient].ratio;       // ширина / высота
     let w = Math.round(vh * r), h = vh;
     if (w > vw) { w = vw; h = Math.round(vw / r); }
     return [w, h];
@@ -371,6 +385,15 @@ const WBPlayer = (() => {
   const tileCache = new Map();
   let tilesAborted = false;
 
+  // Тайл нарисован в цветах той темы, что была на момент отрисовки, поэтому
+  // при переключении кэш сбрасывается. Данные тайлов (самое дорогое — сеть)
+  // лежат отдельно в vectormap.js и переживают смену темы, так что заново
+  // ничего не скачивается, только перерисовывается.
+  //
+  // Поколение нужно из-за отрисовок, начатых до переключения: их результат
+  // придёт уже в новой теме и в кэш попасть не должен.
+  let themeGen = 0;
+
   // untilMs — собрать только начало таймлайна: этого хватает, чтобы
   // запустить проигрывание, не дожидаясь всей карты
   function collectTiles(phases, W, H, untilMs) {
@@ -410,8 +433,9 @@ const WBPlayer = (() => {
         if (idx >= total) { if (done >= total) fin(); return; }
         const key = keys[idx++];
         const [z, x, y] = key.split('/').map(Number);
+        const gen = themeGen;
         WBVectorMap.renderTile(z, x, y)
-          .then(cv => { tileCache.set(key, cv); })
+          .then(cv => { if (gen === themeGen) tileCache.set(key, cv); })
           .catch(() => { /* тайл не пришёл — нарисуется родительский */ })
           .then(() => {
             done++; onProgress && onProgress(done, total);
@@ -428,7 +452,7 @@ const WBPlayer = (() => {
   function drawFrame(ctx, W, H, cam, aFloat, head, tlMs, curIdx, arrivals,
                      withHud, finalHud, geo) {
     const [c, zf] = cam;
-    ctx.fillStyle = BG;
+    ctx.fillStyle = F().bg;
     ctx.fillRect(0, 0, W, H);
 
     const z = Math.round(zf);
@@ -484,8 +508,8 @@ const WBPlayer = (() => {
     if (headScr && aFloat < N) path.push(headScr);
     if (path.length > 1) {
       ctx.lineJoin = 'round'; ctx.lineCap = 'round';
-      for (const [w, style] of [[11 * g, 'rgba(59,130,246,0.16)'],
-                                [4 * g, 'rgba(96,165,250,0.8)']]) {
+      for (const [w, style] of [[11 * g, F().trailGlow],
+                                [4 * g, F().trailLine]]) {
         ctx.beginPath();
         ctx.moveTo(path[0][0], path[0][1]);
         for (let k = 1; k < path.length; k++) ctx.lineTo(path[k][0], path[k][1]);
@@ -495,7 +519,7 @@ const WBPlayer = (() => {
     }
 
     const dotR = 4 * g, margin = dotR + 4;
-    ctx.fillStyle = 'rgba(59,130,246,0.65)';
+    ctx.fillStyle = F().dot;
     for (let i = 0; i < placedN; i++) {
       const [sx, sy] = scr[i];
       if (sx < -margin || sy < -margin || sx > W + margin || sy > H + margin) continue;
@@ -509,7 +533,7 @@ const WBPlayer = (() => {
       for (const delay of [0, 160]) {
         const p = (dt - delay) / BURST_MS;
         if (p < 0 || p > 1) continue;
-        ctx.strokeStyle = `rgba(96,165,250,${(1 - p) * 0.95})`;
+        ctx.strokeStyle = `rgba(${F().burst},${(1 - p) * 0.95})`;
         ctx.lineWidth = 2.5 * g;
         ctx.beginPath(); ctx.arc(sx, sy, (8 + p * 26) * g, 0, Math.PI * 2); ctx.stroke();
       }
@@ -518,11 +542,11 @@ const WBPlayer = (() => {
     if (headScr) {
       const [hx, hy] = headScr;
       const hr = 7 * g;
-      ctx.shadowColor = ACCENT; ctx.shadowBlur = 18 * g;
-      ctx.fillStyle = ACCENT;
+      ctx.shadowColor = F().accent; ctx.shadowBlur = 18 * g;
+      ctx.fillStyle = F().accent;
       ctx.beginPath(); ctx.arc(hx, hy, hr, 0, Math.PI * 2); ctx.fill();
       ctx.shadowBlur = 0;
-      ctx.strokeStyle = '#fff'; ctx.lineWidth = 2 * g;
+      ctx.strokeStyle = F().headRing; ctx.lineWidth = 2 * g;
       ctx.beginPath(); ctx.arc(hx, hy, hr, 0, Math.PI * 2); ctx.stroke();
     }
 
@@ -532,7 +556,7 @@ const WBPlayer = (() => {
 
     // атрибуция карты — требование лицензии OpenStreetMap/CARTO
     ctx.textAlign = 'left';
-    ctx.fillStyle = 'rgba(255,255,255,0.38)';
+    ctx.fillStyle = F().attribution;
     ctx.font = `500 ${10.5 * k}px "Segoe UI", Arial`;
     ctx.fillText(ATTRIB, 12 * k, H - 10 * k);
 
@@ -544,30 +568,30 @@ const WBPlayer = (() => {
       const up = brand ? 0 : 32;
 
       const boxW = Math.min(360 * k, W - 48 * k);
-      ctx.fillStyle = 'rgba(13,16,24,0.75)';
+      ctx.fillStyle = F().hudPanel;
       roundRect(ctx, 24 * k, 24 * k, boxW, (152 - up) * k, 14 * k); ctx.fill();
       if (brand) {
-        ctx.fillStyle = ACCENT_HI; ctx.font = `700 ${13 * k}px "Segoe UI", Arial`;
+        ctx.fillStyle = F().accentHi; ctx.font = `700 ${13 * k}px "Segoe UI", Arial`;
         ctx.fillText('WAYBACK', 44 * k, 54 * k);
       }
 
-      const dim = '#9aa0ad';
+      const dim = F().hudDim;
       if (finalHud) {
-        ctx.fillStyle = '#f4f3f1'; ctx.font = `800 ${21 * k}px "Segoe UI", Arial`;
+        ctx.fillStyle = F().hudText; ctx.font = `800 ${21 * k}px "Segoe UI", Arial`;
         ctx.fillText(DATE_RANGE, 44 * k, (94 - up) * k);
         ctx.fillStyle = dim; ctx.font = `600 ${15 * k}px "Segoe UI", Arial`;
         ctx.fillText(GEO_SUMMARY || 'вся история', 44 * k, (122 - up) * k);
-        ctx.fillStyle = ACCENT_HI; ctx.font = `700 ${16 * k}px "Segoe UI", Arial`;
+        ctx.fillStyle = F().accentHi; ctx.font = `700 ${16 * k}px "Segoe UI", Arial`;
         ctx.fillText(`${N} ${plural(N, ['тренировка', 'тренировки', 'тренировок'])} · ` +
                      `${CUM_KM[N - 1].toFixed(1)} км`, 44 * k, (152 - up) * k);
       } else {
         const cur = curIdx >= 0 && curIdx < N ? ACTS[curIdx] : null;
-        ctx.fillStyle = '#f4f3f1'; ctx.font = `800 ${34 * k}px "Segoe UI", Arial`;
+        ctx.fillStyle = F().hudText; ctx.font = `800 ${34 * k}px "Segoe UI", Arial`;
         ctx.fillText(cur ? cur.date : '—', 44 * k, (96 - up) * k);
         ctx.fillStyle = dim; ctx.font = `600 ${15 * k}px "Segoe UI", Arial`;
         ctx.fillText(ellipsize(ctx, cur && cur.locLabel ? cur.locLabel : '',
                                boxW - 40 * k), 44 * k, (122 - up) * k);
-        ctx.fillStyle = ACCENT_HI; ctx.font = `700 ${16 * k}px "Segoe UI", Arial`;
+        ctx.fillStyle = F().accentHi; ctx.font = `700 ${16 * k}px "Segoe UI", Arial`;
         const km = curIdx >= 0 ? CUM_KM[Math.min(curIdx, N - 1)].toFixed(1) : '0';
         ctx.fillText(`${placedN} / ${N} · ${km} км`, 44 * k, (152 - up) * k);
       }
@@ -577,10 +601,10 @@ const WBPlayer = (() => {
       if (typeof WBLicense !== 'undefined' && WBLicense.isPaid()) return;
       ctx.textAlign = 'right';
       ctx.font = `700 ${15 * k}px "Segoe UI", Arial`;
-      ctx.fillStyle = 'rgba(255,255,255,0.62)';
+      ctx.fillStyle = F().watermark;
       ctx.fillText(WATERMARK, W - 16 * k, H - 14 * k);
       const dotX = W - 16 * k - ctx.measureText(WATERMARK).width - 11 * k;
-      ctx.fillStyle = ACCENT;
+      ctx.fillStyle = F().accent;
       ctx.beginPath(); ctx.arc(dotX, H - 19 * k, 4.5 * k, 0, Math.PI * 2); ctx.fill();
       ctx.textAlign = 'left';
     }
@@ -613,7 +637,7 @@ const WBPlayer = (() => {
     const taken = [];
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.shadowColor = 'rgba(0,0,0,0.85)';
+    ctx.shadowColor = F().labelShadow;
     let drawn = 0;
     for (const l of uniq) {
       if (drawn >= 14) break;              // больше глазу и не нужно
@@ -627,9 +651,7 @@ const WBPlayer = (() => {
                             box[3] < t[1] || box[1] > t[3]))) continue;
       taken.push(box);
       ctx.shadowBlur = 4 * k;
-      ctx.fillStyle = l.cls === 'country'
-        ? 'rgba(186,198,218,0.78)'
-        : 'rgba(158,170,190,0.72)';
+      ctx.fillStyle = l.cls === 'country' ? F().labelCountry : F().labelPlace;
       if (l.cls === 'country') ctx.letterSpacing = (2 * k) + 'px';
       ctx.fillText(l.name, px, py);
       if (l.cls === 'country') ctx.letterSpacing = '0px';
@@ -658,6 +680,27 @@ const WBPlayer = (() => {
     ctx.closePath();
   }
 
+  // Смена темы. Карта перерисовывается из тех же данных, слои Leaflet
+  // перекрашиваются на месте, кадр рисуется заново — всё без перезагрузки.
+  function applyTheme() {
+    themeGen++;
+    tileCache.clear();
+
+    const f = WBTheme.frame();
+    if (trailGlow) trailGlow.setStyle({ color: f.accent });
+    if (trail) trail.setStyle({ color: f.accentHi });
+    for (const m of dotMarkers) m.setStyle({ color: f.accent, fillColor: f.accent });
+
+    const player = $('player');
+    if (player) player.classList.toggle('light', WBTheme.isLight());
+    if (map) map.getContainer().style.background = WBTheme.map().bg;
+    if (gridLayer) gridLayer.redraw();
+
+    // Живое превью держит свой кадр — пересобираем его целиком
+    if (live) { pause(); live = null; }
+    if (N) render(placed);
+  }
+
   // Слой Leaflet поверх того же векторного рендера
   const VectorGridLayer = L.GridLayer.extend({
     createTile: function (coords, done) {
@@ -673,7 +716,7 @@ const WBPlayer = (() => {
   // ---------------------------------------------------------------- Leaflet-режим
   function makeDot(a) {
     return L.circleMarker([a.lat, a.lon], {
-      radius: 4, color: ACCENT, weight: 1, fillColor: ACCENT, fillOpacity: 0.6
+      radius: 4, color: F().accent, weight: 1, fillColor: F().accent, fillOpacity: 0.6
     }).bindPopup(`<b>${a.date}</b><br>${escapeHtml(a.name || '')}<br>${a.km} км`);
   }
 
@@ -941,6 +984,65 @@ const WBPlayer = (() => {
     });
   }
 
+  // ---------------------------------------------------------------- результат
+  // Готовое видео сначала показывается, и только потом сохраняется.
+  // Раньше файл падал в загрузки сразу: человек не видел, что получилось,
+  // а на телефоне ещё и не понимал, куда именно оно делось.
+  let result = null;          // { blob, name, url }
+
+  const SHARE_TEXT = 'Весь спортивный путь в одном видео\nwayback.pro';
+
+  function clearResult() {
+    if (result && result.url) URL.revokeObjectURL(result.url);
+    result = null;
+    const v = $('resultVideo');
+    if (v) { v.pause(); v.removeAttribute('src'); v.load(); }
+  }
+
+  // Поделиться файлом умеют не все: на настольных браузерах такого обычно
+  // нет вовсе. Спрашиваем не «телефон ли это», а умеет ли браузер отдать
+  // именно файл — проверка по возможности честнее проверки по устройству.
+  function canShareFile(file) {
+    return !!(navigator.canShare && navigator.share &&
+              navigator.canShare({ files: [file] }));
+  }
+
+  function showResult(blob, name) {
+    clearResult();
+    result = { blob, name, url: URL.createObjectURL(blob) };
+
+    const v = $('resultVideo');
+    v.src = result.url;
+    v.play().catch(() => { /* автовоспроизведение может быть запрещено */ });
+
+    const mb = (blob.size / 1048576).toFixed(1);
+    const fmt = exportOrient === 'portrait' ? '9:16' : '16:9';
+    $('resultMeta').textContent = `${fmt} · ${selQuality}p · ${selFps} кадров/с · ${mb} МБ`;
+
+    const file = new File([blob], name, { type: blob.type });
+    const share = $('resultShare');
+    share.hidden = !canShareFile(file);
+    $('resultHint').hidden = true;
+
+    showExportView('result');
+    exportOverlay.classList.add('visible');
+  }
+
+  async function shareResult() {
+    if (!result) return;
+    const file = new File([result.blob], result.name, { type: result.blob.type });
+    const hint = $('resultHint');
+    try {
+      await navigator.share({ files: [file], text: SHARE_TEXT, title: 'WayBack' });
+    } catch (e) {
+      // Отмена — это не ошибка: человек просто закрыл системное окно
+      if (e && e.name === 'AbortError') return;
+      hint.textContent = 'Не получилось открыть окно «Поделиться». ' +
+        'Сохраните видео и отправьте из галереи.';
+      hint.hidden = false;
+    }
+  }
+
   function saveBlob(blob, name) {
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
@@ -953,7 +1055,7 @@ const WBPlayer = (() => {
   // Имя файла по выбранному качеству, а не по высоте кадра: у вертикали
   // высота 1920, и «wayback-1920p» читалось бы как другое разрешение
   function videoName(ext) {
-    const o = selOrient === 'portrait' ? 'vert' : 'gor';
+    const o = exportOrient === 'portrait' ? 'vert' : 'gor';
     return `wayback-${o}-${selQuality}p${selFps}.${ext}`;
   }
 
@@ -1038,8 +1140,8 @@ const WBPlayer = (() => {
     await encoder.flush();
     muxer.finalize();
     if (exportAbort) return;
-    setExportProgress(100, 'Сохраняем файл...');
-    saveBlob(new Blob([muxer.target.buffer], { type: 'video/mp4' }), videoName('mp4'));
+    setExportProgress(100, 'Готовим предпросмотр...');
+    showResult(new Blob([muxer.target.buffer], { type: 'video/mp4' }), videoName('mp4'));
   }
 
   async function exportRealtime(W, H) {
@@ -1089,7 +1191,7 @@ const WBPlayer = (() => {
     rec.stop();
     await recDone;
     if (exportAbort || !chunks.length) return;
-    saveBlob(new Blob(chunks, { type: mime || 'video/webm' }), videoName(ext));
+    showResult(new Blob(chunks, { type: mime || 'video/webm' }), videoName(ext));
   }
 
   function bindSeg(segEl, onPick) {
@@ -1106,7 +1208,7 @@ const WBPlayer = (() => {
     exportAbort = false;
     showExportView('progress');
     setExportProgress(0, 'Подготовка...');
-    const [w, h] = FRAMES[selOrient][selQuality];
+    const [w, h] = FRAMES[exportOrient][selQuality];
     const bitrate = BITRATES[selQuality];
     try {
       if (window.VideoEncoder) {
@@ -1123,9 +1225,13 @@ const WBPlayer = (() => {
         return;
       }
       await exportRealtime(w, h);
-    } finally {
+    } catch (e) {
       exportOverlay.classList.remove('visible');
+      throw e;
     }
+    // Окно не закрываем: в нём показывается готовое видео. Закрыть его
+    // должен человек — кнопкой, уже посмотрев результат.
+    if (exportAbort) exportOverlay.classList.remove('visible');
   }
 
   // ---------------------------------------------------------------- инициализация
@@ -1149,35 +1255,31 @@ const WBPlayer = (() => {
     });
     followCam.addEventListener('change', () => { if (playing) pause(); });
 
-    // Ориентация задаётся в двух местах — держим их согласованными,
-    // чтобы превью и рендер никогда не расходились
-    const applyOrient = (v, fromSeg) => {
-      if (v === selOrient) return;
-      selOrient = v;
-      orientSelect.value = v;
-      $('segO').querySelectorAll('button').forEach(b =>
-        b.classList.toggle('sel', b.dataset.v === v));
-      if (!fromSeg) { pause(); live = null; render(placed); }
-    };
-    orientSelect.addEventListener('change', () => applyOrient(orientSelect.value, false));
+    // Список в панели плеера меняет то, что видно на экране
+    orientSelect.addEventListener('change', () => {
+      const v = orientSelect.value;
+      if (v === previewOrient) return;
+      previewOrient = v;
+      pause(); live = null; render(placed);
+    });
+    // Кнопки в окне экспорта меняют то, что уйдёт в файл
     $('segO').querySelectorAll('button').forEach(btn => {
-      btn.addEventListener('click', () => applyOrient(btn.dataset.v, true));
+      btn.addEventListener('click', () => { exportOrient = btn.dataset.v; });
     });
 
     bindSeg($('segQ'), v => { selQuality = v; });
     bindSeg($('segF'), v => { selFps = v; });
 
 
-    // Ориентация по умолчанию — под экран, на котором смотрят: на ПК широкий
-    // кадр занимает окно целиком, вертикальный оставил бы чёрные поля по бокам.
-    // Вертикаль остаётся главным форматом выгрузки, её выбирают одним щелчком.
-    const startOrient = isMobile() ? 'portrait' : 'landscape';
-    if (startOrient !== selOrient) {
-      selOrient = startOrient;
-      orientSelect.value = startOrient;
-      $('segO').querySelectorAll('button').forEach(b =>
-        b.classList.toggle('sel', b.dataset.v === startOrient));
-    }
+    // Превью — под экран: на компьютере горизонтально, на телефоне вертикально.
+    previewOrient = isMobile() ? 'portrait' : 'landscape';
+    orientSelect.value = previewOrient;
+
+    // Выгрузка — всегда вертикально: этот формат идут в истории и ленты.
+    // На компьютере это намеренно расходится с превью.
+    exportOrient = 'portrait';
+    $('segO').querySelectorAll('button').forEach(b =>
+      b.classList.toggle('sel', b.dataset.v === exportOrient));
     videoBtn.addEventListener('click', () => {
       pause();
       showExportView('settings');
@@ -1194,6 +1296,36 @@ const WBPlayer = (() => {
     $('buyBack').addEventListener('click', () => {
       exportOverlay.classList.remove('visible');
     });
+    // Значок показывает, куда переключишься, а не текущее состояние:
+    // так понятнее, что кнопка делает.
+    // Класс ставится и здесь, а не только в applyTheme: тема могла прийти
+    // из прошлого посещения, и тогда смены не происходит — а разметку
+    // покрасить всё равно нужно.
+    const syncThemeBtn = () => {
+      const light = WBTheme.isLight();
+      $('player').classList.toggle('light', light);
+      const b = $('themeBtn');
+      if (!b) return;
+      b.textContent = light ? '☀' : '☾';
+      b.title = light ? 'Переключить на тёмную карту' : 'Переключить на светлую карту';
+      b.setAttribute('aria-pressed', String(light));
+    };
+    syncThemeBtn();
+    $('themeBtn').addEventListener('click', () => {
+      WBTheme.toggle();
+      syncThemeBtn();
+    });
+    WBTheme.onChange(applyTheme);
+
+    $('resultSave').addEventListener('click', () => {
+      if (result) saveBlob(result.blob, result.name);
+    });
+    $('resultShare').addEventListener('click', shareResult);
+    $('resultClose').addEventListener('click', () => {
+      exportOverlay.classList.remove('visible');
+      clearResult();
+    });
+
     $('buyGo').addEventListener('click', goToPayment);
     $('buyEmail').addEventListener('keydown', e => {
       if (e.key === 'Enter') goToPayment();
@@ -1217,8 +1349,10 @@ const WBPlayer = (() => {
   function showExportView(which) {
     exportSettings.style.display = which === 'settings' ? 'block' : 'none';
     buyPanel.hidden = which !== 'buy';
+    $('resultPanel').hidden = which !== 'result';
     exportProgress.style.display = which === 'progress' ? 'block' : 'none';
     if (which === 'buy') fillBuyPanel();
+    if (which !== 'result') clearResult();
   }
 
   // Кнопка покупки стоит в панели плеера, рядом со «Скачать видео».
@@ -1354,15 +1488,15 @@ const WBPlayer = (() => {
     // Интерактивная карта рисуется тем же движком, что и кадры видео,
     // поэтому пауза и проигрывание выглядят одинаково
     WBVectorMap.init(MAP.tilejson).catch(e => console.warn('карта:', e));
-    new VectorGridLayer({
+    gridLayer = new VectorGridLayer({
       maxZoom: MAP.maxZoom, attribution: MAP.attribution, keepBuffer: 6
     }).addTo(map);
     map.fitBounds(bounds.pad(0.2));
 
     const paint = L.canvas({ padding: 0.5 });
-    trailGlow = L.polyline([], { renderer: paint, color: ACCENT, weight: 11, opacity: 0.16,
+    trailGlow = L.polyline([], { renderer: paint, color: F().accent, weight: 11, opacity: 0.16,
       interactive: false, lineJoin: 'round' }).addTo(map);
-    trail = L.polyline([], { renderer: paint, color: ACCENT_HI, weight: 4, opacity: 0.8,
+    trail = L.polyline([], { renderer: paint, color: F().accentHi, weight: 4, opacity: 0.8,
       interactive: false, lineJoin: 'round', lineCap: 'round' }).addTo(map);
     dotsLayer = L.layerGroup().addTo(map);
 

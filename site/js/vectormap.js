@@ -20,24 +20,23 @@ const WBVectorMap = (() => {
   const TILE_PX = 256;
 
   // ---------------------------------------------------------------- стиль
-  // Тёмная палитра под синий след. Порядок ключей = порядок отрисовки.
-  // Карта — фон, а не герой кадра: синий след должен доминировать.
-  // Поэтому всё держим тёмным и почти обесцвеченным, а синеву отдаём следу.
-  const BG        = '#0b0e14';
-  const WATER     = '#08101c';
-  const GREEN     = '#0b1210';
-  const LANDUSE   = '#0c0f16';
-  const BUILDING  = '#111520';
-  const BOUNDARY  = 'rgba(150,165,190,0.18)';
+  // Сами цвета живут в theme.js — там же, где цвета следа и панели:
+  // карта и то, что поверх неё, должны подбираться вместе, иначе при смене
+  // темы они разъезжаются. Здесь остаётся только геометрия: толщина линий
+  // и зумы, с которых слой проступает.
+  //
+  // Функции, а не константы: тема меняется на лету, и значение должно
+  // читаться в момент отрисовки тайла.
+  const C = () => WBTheme.map();
 
-  // Дороги: цвет и толщина в пикселях тайла (256). Мелкие проступают
-  // только на крупных зумах, иначе город превращается в кашу.
-  const ROADS = [
-    { classes: ['service', 'minor'],  color: '#1a1e28', w: 0.5, minZ: 13 },
-    { classes: ['tertiary'],          color: '#20252f', w: 0.7, minZ: 11 },
-    { classes: ['secondary'],         color: '#272c38', w: 0.9, minZ: 9 },
-    { classes: ['primary'],           color: '#2f3542', w: 1.1, minZ: 7 },
-    { classes: ['trunk', 'motorway'], color: '#3a4151', w: 1.4, minZ: 5 }
+  // Дороги: толщина в пикселях тайла (256). Мелкие проступают только
+  // на крупных зумах, иначе город превращается в кашу.
+  const ROAD_SPECS = [
+    { classes: ['service', 'minor'],  key: 'minor',     w: 0.5, minZ: 13 },
+    { classes: ['tertiary'],          key: 'tertiary',  w: 0.7, minZ: 11 },
+    { classes: ['secondary'],         key: 'secondary', w: 0.9, minZ: 9 },
+    { classes: ['primary'],           key: 'primary',   w: 1.1, minZ: 7 },
+    { classes: ['trunk', 'motorway'], key: 'motorway',  w: 1.4, minZ: 5 }
   ];
 
   // Подписи. Мелкие пункты появляются только на крупных зумах, иначе
@@ -196,7 +195,7 @@ const WBVectorMap = (() => {
   }
 
   function paint(ctx, layers, z, labels, tileOrigin, worldScale) {
-    ctx.fillStyle = BG;
+    ctx.fillStyle = C().bg;
     ctx.fillRect(0, 0, TILE_PX, TILE_PX);
     ctx.lineJoin = 'round';
     ctx.lineCap = 'round';
@@ -218,17 +217,17 @@ const WBVectorMap = (() => {
     };
 
     // Заливки: от общего к частному
-    fillLayer('landuse', LANDUSE);
-    fillLayer('landcover', GREEN, p => /wood|forest|grass|park|scrub/.test(p.class || ''));
-    fillLayer('park', GREEN);
-    fillLayer('water', WATER);
-    if (z >= 14) fillLayer('building', BUILDING);
+    fillLayer('landuse', C().landuse);
+    fillLayer('landcover', C().green, p => /wood|forest|grass|park|scrub/.test(p.class || ''));
+    fillLayer('park', C().green);
+    fillLayer('water', C().water);
+    if (z >= 14) fillLayer('building', C().building);
 
     // Реки — линиями, иначе на средних зумах их не видно
     const wl = byName['waterway'];
     if (wl && z >= 10) {
       const k = TILE_PX / wl.extent;
-      ctx.strokeStyle = WATER; ctx.lineWidth = 1.2;
+      ctx.strokeStyle = C().water; ctx.lineWidth = 1.2;
       drawLayer(ctx, wl, k, (f, rings) => {
         if (f.type !== 2) return;
         pathOf(ctx, rings, k);
@@ -246,9 +245,9 @@ const WBVectorMap = (() => {
         if (f.type !== 2) continue;
         feats.push([f, decodeGeometry(f.geom)]);
       }
-      for (const spec of ROADS) {
+      for (const spec of ROAD_SPECS) {
         if (z < spec.minZ) continue;
-        ctx.strokeStyle = spec.color;
+        ctx.strokeStyle = C().roads[spec.key];
         ctx.lineWidth = spec.w;
         ctx.beginPath();
         for (const [f, rings] of feats) {
@@ -293,7 +292,7 @@ const WBVectorMap = (() => {
     const bl = byName['boundary'];
     if (bl) {
       const k = TILE_PX / bl.extent;
-      ctx.strokeStyle = BOUNDARY; ctx.lineWidth = 0.8;
+      ctx.strokeStyle = C().boundary; ctx.lineWidth = 0.8;
       drawLayer(ctx, bl, k, (f, rings) => {
         if (f.type !== 2 || (f.props.admin_level || 99) > 2) return;
         pathOf(ctx, rings, k);
@@ -376,7 +375,7 @@ const WBVectorMap = (() => {
     try { layers = await tileData(dzoom, dx, dy); }
     catch (e) {
       dataCache.delete(dzoom + '/' + dx + '/' + dy);   // дать шанс повторить
-      ctx.fillStyle = BG; ctx.fillRect(0, 0, TILE_PX, TILE_PX);
+      ctx.fillStyle = C().bg; ctx.fillRect(0, 0, TILE_PX, TILE_PX);
       return cv;
     }
 
@@ -387,7 +386,7 @@ const WBVectorMap = (() => {
       ctx.scale(scale, scale);
       // Фон рисуем до трансформации, иначе зальётся только четверть
       ctx.restore();
-      ctx.fillStyle = BG; ctx.fillRect(0, 0, TILE_PX, TILE_PX);
+      ctx.fillStyle = C().bg; ctx.fillRect(0, 0, TILE_PX, TILE_PX);
       ctx.save();
       ctx.translate(-(x - (dx << dz)) * TILE_PX, -(y - (dy << dz)) * TILE_PX);
       ctx.scale(scale, scale);
@@ -399,7 +398,7 @@ const WBVectorMap = (() => {
       // Начало координат тайла с данными, пересчитанное на запрошенный зум
       paint(ctx, layers, z, labels,
             [dx * TILE_PX * scale, dy * TILE_PX * scale], scale);
-    } else { ctx.fillStyle = BG; ctx.fillRect(0, 0, TILE_PX, TILE_PX); }
+    } else { ctx.fillStyle = C().bg; ctx.fillRect(0, 0, TILE_PX, TILE_PX); }
 
     if (dz > 0) ctx.restore();
 
@@ -418,5 +417,5 @@ const WBVectorMap = (() => {
     return cv;
   }
 
-  return { init, renderTile, decodeTile, TILE_PX, BG };
+  return { init, renderTile, decodeTile, TILE_PX, bg: () => C().bg };
 })();
