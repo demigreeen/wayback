@@ -512,23 +512,37 @@ const WBPlayer = (() => {
     let done = 0;
     const tick = () => { done++; onProgress && onProgress(Math.min(done, total), total); };
 
-    let pending = keys;
-    for (let attempt = 0; attempt <= MAP.sources.length; attempt++) {
+    // Недошедший тайл — это не просто «чуть хуже карта». В кадре он
+    // подменяется растянутым родительским, и на видео это видно как
+    // мгновенная пикселизация после каждого движения камеры. На мобильной
+    // сети запросы срываются заметно чаще, чем на проводной, поэтому
+    // потерянные тайлы обязательно перепрашиваем: со второго раза почти
+    // всегда приходят.
+    const RETRIES = 2;
+    let pending = keys, retries = 0;
+    for (let attempt = 0; attempt < MAP.sources.length + RETRIES + 1; attempt++) {
       const failed = await loadWave(pending, tick);
-      if (tilesAborted) return;
-      // Отдельные дырки — обычное дело: у источника может не быть тайла.
-      // Их дорисует растянутый родительский, менять источник незачем.
-      if (failed.length * 2 <= pending.length) return;
-      if (!(await WBVectorMap.nextSource())) {
-        noteMapUnavailable();
-        return;
+      if (tilesAborted || !failed.length) return;
+
+      // Провалилось больше половины — дело не в отдельных срывах,
+      // а в источнике: уходим к следующему.
+      if (failed.length * 2 > pending.length) {
+        if (!(await WBVectorMap.nextSource())) {
+          noteMapUnavailable();
+          return;
+        }
+        // Новый источник — новая схема и новые данные: всё, что успели
+        // нарисовать прежним, пересобираем.
+        tileCache.clear();
+        if (gridLayer && gridLayer.redraw) gridLayer.redraw();
+        pending = keys;
+        done = 0;
+        retries = 0;
+        continue;
       }
-      // Новый источник — новая схема и новые данные: всё, что успели
-      // нарисовать прежним, пересобираем.
-      tileCache.clear();
-      if (gridLayer && gridLayer.redraw) gridLayer.redraw();
-      pending = keys;
-      done = 0;
+
+      if (retries++ >= RETRIES) return;   // не пришли и с повторов — рисуем как есть
+      pending = failed;
     }
   }
 
@@ -1068,6 +1082,15 @@ const WBPlayer = (() => {
   // ---------------------------------------------------------------- экспорт видео
   let exportAbort = false;
 
+  // «осталось 40 с» / «осталось 3 мин» — округляем грубо, точность здесь
+  // не нужна, нужна уверенность, что процесс идёт.
+  function fmtLeft(sec) {
+    if (!isFinite(sec) || sec < 0) return '';
+    if (sec < 90) return Math.max(1, Math.round(sec / 5) * 5) + ' с';
+    return Math.round(sec / 60) + ' ' +
+           plural(Math.round(sec / 60), ['минута', 'минуты', 'минут']);
+  }
+
   function setExportProgress(pct, text) {
     const p = Math.max(0, Math.min(100, Math.round(pct)));
     exportPct.textContent = p + '%';
@@ -1178,11 +1201,23 @@ const WBPlayer = (() => {
     const codecs = [
       ['avc', 'avc1.640028'], ['avc', 'avc1.42001f'], ['vp9', 'vp09.00.41.08']
     ];
+    // Сначала спрашиваем именно аппаратный кодировщик и только потом любой.
+    // На компьютере разницы почти нет, на телефоне она решающая: программное
+    // кодирование H.264 в 1080×1920 идёт в разы медленнее, и минутный ролик
+    // растягивается на минуты ожидания.
     let chosen = null;
-    for (const [mux, codec] of codecs) {
-      const sup = await VideoEncoder.isConfigSupported(
-        { codec, width: W, height: H, bitrate: BITRATE, framerate: FPS });
-      if (sup.supported) { chosen = { mux, codec }; break; }
+    for (const accel of ['prefer-hardware', 'no-preference']) {
+      for (const [mux, codec] of codecs) {
+        let sup = null;
+        try {
+          sup = await VideoEncoder.isConfigSupported({
+            codec, width: W, height: H, bitrate: BITRATE, framerate: FPS,
+            hardwareAcceleration: accel
+          });
+        } catch (e) { /* браузер не знает такой кодек или подсказку */ }
+        if (sup && sup.supported) { chosen = { mux, codec, accel }; break; }
+      }
+      if (chosen) break;
     }
     if (!chosen) throw new Error('нет поддерживаемого кодека');
 
@@ -1207,10 +1242,12 @@ const WBPlayer = (() => {
       error: e => { encError = e; }
     });
     encoder.configure({ codec: chosen.codec, width: W, height: H,
-                        bitrate: BITRATE, framerate: FPS });
+                        bitrate: BITRATE, framerate: FPS,
+                        hardwareAcceleration: chosen.accel });
 
     const totalFrames = Math.ceil(totalMs / 1000 * FPS);
     const usPerFrame = Math.round(1_000_000 / FPS);
+    const tRender = performance.now();
 
     for (let f = 0; f < totalFrames; f++) {
       if (exportAbort) { try { encoder.close(); } catch (e) {} return; }
@@ -1233,8 +1270,19 @@ const WBPlayer = (() => {
         });
       }
       if (f % 3 === 0) {
+        // Скорость и остаток показываем не для красоты: на телефоне рендер
+        // идёт минутами, и без них ожидание неотличимо от зависания.
+        // Заодно это единственная цифра, по которой видно, что кодирование
+        // пошло программным путём.
+        let note = '';
+        if (f >= 15) {
+          const fps = f / ((performance.now() - tRender) / 1000);
+          note = ' — ' + fps.toFixed(1) + ' кадр/с, осталось ' +
+                 fmtLeft((totalFrames - f) / fps);
+        }
         setExportProgress(12 + f / totalFrames * 86,
-          'Рендерим видео покадрово — можно свернуть вкладку, рендер продолжится...');
+          'Рендерим видео покадрово' + note +
+          '. Вкладку можно свернуть, рендер продолжится.');
         await nextTick();
       }
     }
