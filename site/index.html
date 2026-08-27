@@ -213,7 +213,10 @@
     <button class="pro-ctl" id="themeBtn" title="Светлая или тёмная карта"
             type="button" aria-pressed="false">☾</button>
     <button class="pro-ctl" id="periodBtn" title="За какой период показывать"
-            type="button">⚑</button>
+            type="button" aria-label="Выбрать период"><svg viewBox="0 0 24 24" width="18" height="18"
+        fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+        aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="3"/><path
+        d="M3 10h18M8 3v4M16 3v4"/></svg></button>
     <input type="range" id="slider" min="0" max="0" value="0" step="1">
     <select id="orient" title="Формат кадра">
       <option value="portrait" selected>Вертикально 9:16</option>
@@ -230,8 +233,6 @@
       <input type="checkbox" id="followCam" checked> камера
     </label>
     <button class="secondary" id="videoBtn" title="Записать и скачать видеофайл" type="button">⬇ Скачать видео</button>
-    <button class="buy-btn" id="buyBtn" type="button" hidden
-            title="Без надписи в кадре, выбор периода, тёмная тема">PRO версия</button>
     <div id="counter"></div>
   </div>
 
@@ -275,8 +276,8 @@
             <button data-v="60" type="button">60</button>
           </div>
         </div>
-        <button class="buy-btn only-mobile" id="buyBtnPanel" type="button" hidden
-                title="Без надписи в кадре, выбор периода, тёмная тема">PRO версия</button>
+        <button class="buy-btn" id="buyBtnPanel" type="button" hidden
+                title="Входит в PRO: ещё выбор периода и тёмная тема">Убрать водяной знак</button>
         <button id="exportStart" type="button">Начать рендер</button>
         <button id="exportClose" type="button">Отмена</button>
       </div>
