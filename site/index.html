@@ -30,6 +30,7 @@
       <a href="#privacy">Приватность</a>
       <a href="price.html">Тарифы</a>
     </nav>
+    <button id="proBtn" class="pro-btn" type="button">PRO версия</button>
   </div>
 </header>
 
@@ -209,8 +210,10 @@
   <div id="controls">
     <button id="playBtn" title="Играть / Пауза" type="button">▶</button>
     <button class="secondary" id="resetBtn" title="Сначала" type="button">⟲</button>
-    <button class="secondary" id="themeBtn" title="Светлая или тёмная карта"
+    <button class="pro-ctl" id="themeBtn" title="Светлая или тёмная карта"
             type="button" aria-pressed="false">☾</button>
+    <button class="pro-ctl" id="periodBtn" title="За какой период показывать"
+            type="button">⚑</button>
     <input type="range" id="slider" min="0" max="0" value="0" step="1">
     <select id="orient" title="Формат кадра">
       <option value="portrait" selected>Вертикально 9:16</option>
@@ -227,8 +230,24 @@
       <input type="checkbox" id="followCam" checked> камера
     </label>
     <button class="secondary" id="videoBtn" title="Записать и скачать видеофайл" type="button">⬇ Скачать видео</button>
-    <button class="buy-btn" id="buyBtn" title="Убрать надпись wayback.pro из кадра" type="button" hidden>Убрать водяной знак</button>
+    <button class="buy-btn" id="buyBtn" type="button" hidden
+            title="Без надписи в кадре, выбор периода, тёмная тема">PRO версия</button>
     <div id="counter"></div>
+  </div>
+
+  <div id="periodOverlay">
+    <div id="periodBox">
+      <div class="per-title">За какой период</div>
+      <div class="per-sub" id="perAll"></div>
+      <div class="per-presets" id="perPresets"></div>
+      <div class="per-range">
+        <label>с <input type="date" id="perFrom"></label>
+        <label>по <input type="date" id="perTo"></label>
+      </div>
+      <div class="per-count" id="perCount"></div>
+      <button id="perApply" type="button">Показать этот период</button>
+      <button id="perClose" type="button">Отмена</button>
+    </div>
   </div>
 
   <div id="exportOverlay">
@@ -256,37 +275,12 @@
             <button data-v="60" type="button">60</button>
           </div>
         </div>
+        <button class="buy-btn only-mobile" id="buyBtnPanel" type="button" hidden
+                title="Без надписи в кадре, выбор периода, тёмная тема">PRO версия</button>
         <button id="exportStart" type="button">Начать рендер</button>
         <button id="exportClose" type="button">Отмена</button>
       </div>
 
-      <div id="buyPanel" hidden>
-        <div class="buy-title">Отключение водяного знака</div>
-        <div class="buy-price">
-          <s id="buyWas"></s><b id="buyNow"></b>
-        </div>
-        <div class="buy-badge">цена</div>
-        <ul class="buy-list">
-          <li>В углу кадра не будет надписи <b>wayback.pro</b></li>
-          <li>Разовый платёж</li>
-          <li>Ссылка придёт на почту и работает на любом вашем устройстве</li>
-        </ul>
-        <div id="buyForm" hidden>
-          <label class="buy-label" for="buyEmail">Почта для ссылки</label>
-          <input id="buyEmail" class="buy-input" type="email" inputmode="email"
-                 autocomplete="email" placeholder="вы@почта.ру"
-                 aria-describedby="buyEmailNote">
-          <div id="buyEmailNote" class="buy-hint">На неё придёт ссылка и чек</div>
-          <div id="buyError" class="buy-error" hidden></div>
-          <button id="buyGo" class="buy-go" type="button"></button>
-        </div>
-        <div id="buySoon" class="buy-soon" hidden>
-          Оплата подключается. Напишите на <span data-wb="email"></span> —
-          вышлем ссылку вручную.
-        </div>
-        <a class="buy-terms" href="oferta.html" target="_blank" rel="noopener">Условия покупки</a>
-        <button id="buyBack" type="button">Назад</button>
-      </div>
       <div id="resultPanel" hidden>
         <div class="res-title">Видео готово</div>
         <video id="resultVideo" class="res-video" playsinline controls loop
@@ -308,6 +302,35 @@
   </div>
 </div>
 
+<!-- Панель PRO лежит вне плеера: её открывают и с лендинга,
+     где плеера ещё нет, и поверх окна экспорта внутри плеера -->
+<div id="proOverlay">
+  <div id="proBox">
+    <div class="buy-title">PRO версия</div>
+    <div class="buy-price">
+      <s id="buyWas"></s><b id="buyNow"></b>
+    </div>
+    <div class="buy-badge">разово, навсегда</div>
+    <div id="buyReason" class="buy-reason" hidden></div>
+    <ul class="buy-list" id="buyList"></ul>
+    <div id="buyForm" hidden>
+      <label class="buy-label" for="buyEmail">Почта для ссылки</label>
+      <input id="buyEmail" class="buy-input" type="email" inputmode="email"
+             autocomplete="email" placeholder="вы@почта.ру"
+             aria-describedby="buyEmailNote">
+      <div id="buyEmailNote" class="buy-hint">На неё придёт ссылка и чек</div>
+      <div id="buyError" class="buy-error" hidden></div>
+      <button id="buyGo" class="buy-go" type="button"></button>
+    </div>
+    <div id="buySoon" class="buy-soon" hidden>
+      Оплата подключается. Напишите на <span data-wb="email"></span> —
+      вышлем ссылку вручную.
+    </div>
+    <a class="buy-terms" href="oferta.html" target="_blank" rel="noopener">Условия покупки</a>
+    <button id="buyBack" type="button">Закрыть</button>
+  </div>
+</div>
+
 <script src="js/theme.js?v=dev"></script>
 <script src="js/vendor/leaflet.js?v=dev"></script>
 <script src="js/vendor/fflate.min.js?v=dev"></script>
@@ -315,6 +338,7 @@
 <script src="js/cities.js?v=dev"></script>
 <script src="js/contacts.js?v=dev"></script>
 <script src="js/license.js?v=dev"></script>
+<script src="js/pro.js?v=dev"></script>
 <script src="js/footer.js?v=dev"></script>
 <script src="js/parse.js?v=dev"></script>
 <script src="js/player.js?v=dev"></script>

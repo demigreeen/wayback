@@ -220,6 +220,10 @@ const WBPlayer = (() => {
 
   // ---------------------------------------------------------------- состояние
   let ACTS = [], PTS = [], N = 0, CUM_KM = [], bounds = null, DATE_RANGE = '';
+  // Полный список тренировок, каким его дал лендинг. Выбор периода
+  // перезапускает плеер на подмножестве, и без исходника расширить
+  // период обратно было бы уже нечем.
+  let SOURCE_ACTS = [];
   let GEO_SUMMARY = '';         // «5 городов · 2 страны» для финального кадра
   let map = null, trailGlow = null, trail = null, dotsLayer = null, headMarker = null;
   let gridLayer = null;          // слой карты Leaflet — перерисовывается при смене темы
@@ -270,7 +274,7 @@ const WBPlayer = (() => {
   let shownCountEl, currentDateEl, currentNameEl, cumKmEl, counterEl, liveCanvas;
   let exportOverlay, exportPct, exportBarFill, exportStatus, exportCancel;
   let exportSettings, exportProgress, exportStart, exportClose;
-  let buyPanel, buyBtn;
+  let buyBtns = [];
 
   // ---------------------------------------------------------------- геометрия шагов
   const delayMs = () => parseInt(speedSelect.value, 10);
@@ -1300,17 +1304,14 @@ const WBPlayer = (() => {
       showExportView('settings');
       exportOverlay.classList.add('visible');
     });
-    // Кнопка покупки теперь вне окна экспорта, поэтому сама его открывает.
-    // «Назад» соответственно закрывает окно, а не возвращает к настройкам:
-    // в настройки человек из покупки не приходил.
-    buyBtn.addEventListener('click', () => {
+    // Кнопок покупки две: в панели плеера (широкий экран) и в окне
+    // экспорта над «Начать рендер» (телефон). Панель PRO лежит вне плеера
+    // и всплывает поверх окна экспорта — закрыв её, человек возвращается
+    // ровно туда, откуда пришёл, и вести его за руку не нужно.
+    buyBtns.forEach(b => b.addEventListener('click', () => {
       pause();
-      showExportView('buy');
-      exportOverlay.classList.add('visible');
-    });
-    $('buyBack').addEventListener('click', () => {
-      exportOverlay.classList.remove('visible');
-    });
+      WBPro.open();
+    }));
     // Значок показывает, куда переключишься, а не текущее состояние:
     // так понятнее, что кнопка делает.
     // Класс ставится и здесь, а не только в applyTheme: тема могла прийти
@@ -1322,15 +1323,41 @@ const WBPlayer = (() => {
       const b = $('themeBtn');
       if (!b) return;
       b.textContent = light ? '☀' : '☾';
-      b.title = light ? 'Переключить на тёмную карту' : 'Переключить на светлую карту';
+      b.title = WBPro.isPaid()
+        ? (light ? 'Переключить на тёмную карту' : 'Переключить на светлую карту')
+        : 'Тёмная тема входит в PRO';
       b.setAttribute('aria-pressed', String(light));
     };
     syncThemeBtn();
     $('themeBtn').addEventListener('click', () => {
-      WBTheme.toggle();
-      syncThemeBtn();
+      WBPro.gate('Тёмная тема входит в PRO-версию', () => {
+        WBTheme.toggle();
+        syncThemeBtn();
+      });
     });
     WBTheme.onChange(applyTheme);
+
+    $('periodBtn').addEventListener('click', () => {
+      WBPro.gate('Выбор периода входит в PRO-версию', openPeriod);
+    });
+    $('perClose').addEventListener('click', closePeriod);
+    $('perApply').addEventListener('click', applyPeriod);
+    $('perFrom').addEventListener('change', syncPeriodCount);
+    $('perTo').addEventListener('change', syncPeriodCount);
+    $('periodOverlay').addEventListener('click', e => {
+      if (e.target === $('periodOverlay')) closePeriod();
+    });
+
+    // Купившему платные кнопки надо разблокировать, и наоборот — сбросить
+    // тёмную тему, если ключ перестал действовать. Проверка асинхронная,
+    // поэтому подписываемся, а не читаем однократно.
+    WBPro.onChange(isPaid => {
+      $('themeBtn').classList.toggle('locked', !isPaid);
+      $('periodBtn').classList.toggle('locked', !isPaid);
+      if (!isPaid && !WBTheme.isLight()) WBTheme.set('light');
+      syncThemeBtn();
+      syncBuyBtn();
+    });
 
     $('resultSave').addEventListener('click', () => {
       if (result) saveBlob(result.blob, result.name);
@@ -1341,10 +1368,6 @@ const WBPlayer = (() => {
       clearResult();
     });
 
-    $('buyGo').addEventListener('click', goToPayment);
-    $('buyEmail').addEventListener('keydown', e => {
-      if (e.key === 'Enter') goToPayment();
-    });
     exportStart.addEventListener('click', () => {
       runExport().catch(e => {
         exportOverlay.classList.remove('visible');
@@ -1360,72 +1383,96 @@ const WBPlayer = (() => {
     });
   }
 
-  // В окне экспорта три вида: настройки, покупка, ход рендера.
+  // В окне экспорта три вида: настройки, ход рендера, готовое видео.
+  // Покупка сюда больше не входит — она в своей панели поверх всего.
   function showExportView(which) {
     exportSettings.style.display = which === 'settings' ? 'block' : 'none';
-    buyPanel.hidden = which !== 'buy';
     $('resultPanel').hidden = which !== 'result';
     exportProgress.style.display = which === 'progress' ? 'block' : 'none';
-    if (which === 'buy') fillBuyPanel();
     if (which !== 'result') clearResult();
   }
 
-  // Кнопка покупки стоит в панели плеера, рядом со «Скачать видео».
-  // Купившему её показывать незачем: покупать больше нечего, а отсутствие
-  // надписи в кадре и есть подтверждение, что покупка действует.
+  // Кнопки покупки две — в панели плеера и в окне экспорта; какая видна,
+  // решает ширина экрана (css). Купившему их показывать незачем: покупать
+  // больше нечего, а платные кнопки рядом и так разблокированы.
   function syncBuyBtn() {
-    if (!buyBtn) return;
-    buyBtn.hidden = typeof WBLicense === 'undefined' || WBLicense.isPaid();
+    const hide = typeof WBLicense === 'undefined' || WBLicense.isPaid();
+    buyBtns.forEach(b => { b.hidden = hide; });
   }
 
-  // Панель покупки заполняется при открытии. Кнопка оплаты появляется,
-  // только когда в license.js задана ссылка; без неё вместо кнопки стоит
-  // рабочий обходной путь — почта, по которой ключ выдают вручную
-  // через tools/keygen.html.
-  function fillBuyPanel() {
-    if (typeof WBLicense === 'undefined') return;
-    const p = WBLicense.price();
-    $('buyWas').textContent = p.was + ' ' + p.currency;
-    $('buyNow').textContent = p.now + ' ' + p.currency;
+  // ---------------------------------------------------------------- период
+  // Выбор периода перезапускает плеер на подмножестве тренировок: start()
+  // и так пересобирает всё с нуля (teardown + новая карта), поэтому
+  // отдельной ветки «пересчитать таймлайн» не нужно.
+  const dayISO = ts => {
+    const d = new Date(ts);
+    const p = n => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+  };
+  // Границы полей включают весь день «по», иначе тренировка этого дня
+  // в отрезок не попадёт и человек решит, что фильтр врёт.
+  const fromTs = () => {
+    const v = $('perFrom').value;
+    return v ? new Date(v + 'T00:00:00').getTime() : -Infinity;
+  };
+  const toTs = () => {
+    const v = $('perTo').value;
+    return v ? new Date(v + 'T23:59:59.999').getTime() : Infinity;
+  };
+  const inPeriod = () => {
+    const a = fromTs(), b = toTs();
+    return SOURCE_ACTS.filter(x => x.ts >= a && x.ts <= b);
+  };
 
-    const canPay = WBLicense.enabled();
-    $('buyForm').hidden = !canPay;
-    $('buySoon').hidden = canPay;
-    if (!canPay) return;
+  function openPeriod() {
+    pause();
+    const first = SOURCE_ACTS[0], last = SOURCE_ACTS[SOURCE_ACTS.length - 1];
+    $('perAll').textContent =
+      `Всего ${SOURCE_ACTS.length}: ${first.date} — ${last.date}`;
+    $('perFrom').min = $('perTo').min = dayISO(first.ts);
+    $('perFrom').max = $('perTo').max = dayISO(last.ts);
+    $('perFrom').value = dayISO(ACTS[0].ts);
+    $('perTo').value = dayISO(ACTS[N - 1].ts);
 
-    $('buyGo').textContent = 'Оплатить ' + p.now + ' ' + p.currency;
-    $('buyError').hidden = true;
+    // Готовые кнопки по годам: чаще всего нужен именно год, а не отрезок,
+    // и вводить две даты ради этого — лишняя работа.
+    const box = $('perPresets');
+    box.innerHTML = '';
+    const years = [...new Set(SOURCE_ACTS.map(a => new Date(a.ts).getFullYear()))];
+    const preset = (label, from, to) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.textContent = label;
+      b.addEventListener('click', () => {
+        $('perFrom').value = from; $('perTo').value = to;
+        syncPeriodCount();
+      });
+      box.appendChild(b);
+    };
+    preset('Всё', dayISO(first.ts), dayISO(last.ts));
+    for (const y of years) preset(String(y), `${y}-01-01`, `${y}-12-31`);
+
+    syncPeriodCount();
+    $('periodOverlay').classList.add('visible');
   }
 
-  // Почта нужна дважды: на неё уйдёт ссылка и на неё же ЮKassa пришлёт чек.
-  // Спрашиваем её здесь, а не полагаемся на чек: так письмо уйдёт даже если
-  // у платежа почта окажется в другом поле.
-  async function goToPayment() {
-    const go = $('buyGo');
-    const err = $('buyError');
-    const email = $('buyEmail').value.trim();
+  function closePeriod() {
+    $('periodOverlay').classList.remove('visible');
+  }
 
-    const fail = text => { err.textContent = text; err.hidden = false; };
-    err.hidden = true;
+  function syncPeriodCount() {
+    const n = inPeriod().length;
+    $('perCount').textContent = n
+      ? `${n} ${plural(n, ['тренировка', 'тренировки', 'тренировок'])} в этом периоде`
+      : 'В этом периоде нет тренировок';
+    $('perApply').disabled = n === 0;
+  }
 
-    if (!/^[^@\s]+@[^@\s.]+\.[^@\s]{2,}$/.test(email)) {
-      fail('Проверьте адрес почты — на неё придёт ссылка.');
-      $('buyEmail').focus();
-      return;
-    }
-
-    // Пока идёт запрос, кнопку надо запереть: второй щелчок создал бы
-    // второй платёж, и человек заплатил бы дважды.
-    const was = go.textContent;
-    go.disabled = true;
-    go.textContent = 'Открываем оплату…';
-    try {
-      location.href = await WBLicense.startPayment(email);
-    } catch (e) {
-      fail(e.message);
-      go.disabled = false;
-      go.textContent = was;
-    }
+  function applyPeriod() {
+    const acts = inPeriod();
+    if (!acts.length) return;
+    closePeriod();
+    start(acts, true);
   }
 
   // Повторный запуск (пользователь вернулся и загрузил другой архив):
@@ -1445,8 +1492,11 @@ const WBPlayer = (() => {
     if (liveCanvas) liveCanvas.classList.remove('visible');
   }
 
-  function start(acts) {
+  // keepSource — перезапуск на подмножестве (выбор периода). Полный
+  // список при этом сохраняется, иначе период нельзя было бы расширить.
+  function start(acts, keepSource) {
     if (!acts || acts.length === 0) return;
+    if (!keepSource) SOURCE_ACTS = acts;
 
     slider = $('slider'); playBtn = $('playBtn'); resetBtn = $('resetBtn');
     speedSelect = $('speed'); followCam = $('followCam'); videoBtn = $('videoBtn');
@@ -1458,13 +1508,12 @@ const WBPlayer = (() => {
     exportBarFill = $('exportBarFill'); exportStatus = $('exportStatus');
     exportCancel = $('exportCancel');
     exportSettings = $('exportSettings'); exportProgress = $('exportProgress');
-    buyPanel = $('buyPanel'); buyBtn = $('buyBtn');
+    buyBtns = [$('buyBtn'), $('buyBtnPanel')].filter(Boolean);
 
-    // Проверка покупки асинхронная, поэтому кнопку сверяем дважды: сразу
-    // и когда license.js закончит разбирать ключ. Иначе купивший на миг
+    // Состояние кнопок покупки держит подписка в bindUI: проверка ключа
+    // асинхронная, и однократной сверки не хватает — купивший на миг
     // увидел бы предложение купить снова.
     syncBuyBtn();
-    if (typeof WBLicense !== 'undefined') WBLicense.ready.then(syncBuyBtn);
     exportStart = $('exportStart'); exportClose = $('exportClose');
 
     teardown();

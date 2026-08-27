@@ -19,6 +19,9 @@
   --p-text: #f4f3f1;
   --p-dim: #9aa0ad;
   --p-border: rgba(255,255,255,0.10);
+  /* Непрозрачная версия панели: сквозь полупрозрачную видно карту, а окна
+     покупки и периода стоят поверх содержимого и должны его закрывать */
+  --p-panel-solid: #121826;
 }
 
 * { box-sizing: border-box; }
@@ -240,6 +243,12 @@ body.in-player { overflow: hidden; }
 .doc p { margin: 0 0 12px; font-size: 15px; line-height: 1.7; }
 .doc ul { margin: 0 0 12px; padding-left: 22px; color: var(--ink); }
 .doc li { margin-bottom: 7px; font-size: 15px; line-height: 1.7; }
+/* Страница после оплаты: главное на ней — что ссылку из письма надо
+   сохранить и где её искать. Этот блок набран крупнее остального текста,
+   иначе он теряется среди условий и контактов. */
+.doc .key-note p { font-size: 18px; line-height: 1.6; margin-bottom: 14px; }
+.doc .key-note h2 { font-size: 22px; margin: 26px 0 10px; }
+
 .doc .req {
   background: var(--soft); border: 1px solid var(--line); border-radius: 12px;
   padding: 16px 20px; line-height: 2;
@@ -473,6 +482,85 @@ body.in-player { overflow: hidden; }
   background: transparent !important; color: var(--p-dim) !important;
   border: none !important; }
 
+/* ─────────────────── кнопка PRO в шапке ─────────────────── */
+/* Стоит вне <nav>: на телефоне nav спрятан целиком, а PRO нужен на любой
+   ширине — это единственный вход в покупку до запуска плеера. */
+.pro-btn {
+  flex: 0 0 auto; height: 34px; padding: 0 14px; border-radius: 9px;
+  font: 700 13px/1 inherit; font-family: inherit; cursor: pointer;
+  background: linear-gradient(135deg, #f59e0b, #f97316); color: #fff;
+  border: none; letter-spacing: .01em;
+  transition: filter .15s, transform .1s;
+}
+.pro-btn:hover { filter: brightness(1.08); }
+.pro-btn:active { transform: translateY(1px); }
+/* Купившему покупать нечего, но отметка нужна: до первого готового видео
+   другого подтверждения, что ссылка сработала, у человека нет. */
+.pro-btn.is-paid {
+  background: none; color: #b45309; cursor: default;
+  border: 1px solid rgba(180, 83, 9, 0.35);
+}
+.pro-btn.is-paid:hover { filter: none; }
+
+/* ─────────────────── платные кнопки плеера ─────────────────── */
+/* Тема и период стоят рядом и покрашены иначе остальной панели: это
+   не «ещё две кнопки управления», а витрина PRO. Запертые — приглушены
+   и с замком, купленные — те же по цвету, но живые. */
+#player button.pro-ctl {
+  background: rgba(245, 158, 11, 0.16);
+  color: #fbbf24;
+  border: 1px solid rgba(245, 158, 11, 0.45);
+}
+#player button.pro-ctl:hover { background: rgba(245, 158, 11, 0.26); filter: none; }
+#player button.pro-ctl.locked { position: relative; opacity: 0.85; }
+#player button.pro-ctl.locked::after {
+  content: '🔒'; position: absolute; right: -3px; bottom: -3px;
+  font-size: 10px; line-height: 1; filter: grayscale(1);
+}
+#player.light button.pro-ctl { color: #b45309; }
+
+/* ─────────────────── выбор периода ─────────────────── */
+#periodOverlay {
+  position: absolute; inset: 0; z-index: 2500;
+  display: none; align-items: center; justify-content: center;
+  padding: 20px; background: rgba(7, 10, 16, 0.72); backdrop-filter: blur(6px);
+}
+#periodOverlay.visible { display: flex; }
+#periodBox {
+  width: 100%; max-width: 380px; text-align: left;
+  background: var(--p-panel-solid, #121826); color: var(--p-text);
+  border: 1px solid var(--p-border); border-radius: 18px; padding: 26px 22px;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.5);
+}
+.per-title { font-size: 20px; font-weight: 800; letter-spacing: -0.01em; }
+.per-sub { font-size: 13px; color: var(--p-dim); margin-top: 6px; }
+.per-presets { display: flex; flex-wrap: wrap; gap: 6px; margin: 18px 0 14px; }
+#player .per-presets button {
+  width: auto; height: 30px; padding: 0 12px; font-size: 12.5px; font-weight: 600;
+  background: rgba(255,255,255,0.06); color: var(--p-text);
+  border: 1px solid var(--p-border); border-radius: 8px;
+}
+.per-range { display: flex; gap: 10px; }
+.per-range label {
+  flex: 1 1 0; display: flex; align-items: center; gap: 6px;
+  font-size: 12.5px; color: var(--p-dim);
+}
+.per-range input {
+  flex: 1 1 auto; min-width: 0; height: 36px; padding: 0 8px;
+  background: rgba(255,255,255,0.05); color: var(--p-text);
+  border: 1px solid var(--p-border); border-radius: 8px;
+  font: inherit; font-size: 13px;
+}
+.per-count { font-size: 13px; color: var(--p-dim); margin: 14px 0 4px; }
+#player #perApply { width: 100%; height: 44px; font-size: 14px; margin-top: 10px; }
+#player #perApply:disabled { opacity: .45; cursor: default; }
+#player #perClose {
+  width: 100%; height: 38px; font-size: 13px; margin-top: 8px;
+  background: transparent; color: var(--p-dim);
+}
+#player.light .per-range input,
+#player.light .per-presets button { background: rgba(15, 23, 42, 0.05); }
+
 /* ─────────────────── готовое видео ─────────────────── */
 /* Видео показывается до сохранения: человек должен увидеть результат,
    а не искать файл в загрузках. На телефоне отсюда же можно отправить
@@ -525,6 +613,7 @@ body.in-player { overflow: hidden; }
   --p-border: rgba(15, 23, 42, 0.14);
   --p-accent: #2563eb;
   --p-accent-hi: #1d4ed8;
+  --p-panel-solid: #ffffff;
 }
 /* Тени на светлом фоне должны быть мягче: та же плотность, что на тёмном,
    выглядит грязным пятном */
@@ -585,8 +674,46 @@ body.in-player { overflow: hidden; }
 #player button.buy-btn:hover {
   background: rgba(59, 130, 246, 0.24); filter: none;
 }
+/* Второй экземпляр кнопки — внутри окна экспорта, над «Начать рендер».
+   На телефоне панель плеера и так забита, а окно экспорта человек всё
+   равно открывает перед сохранением: там предложение попадается вовремя
+   и не отнимает строку у управления. На широком экране показывается
+   только кнопка в панели, на узком — только эта. */
+#player button.buy-btn.only-mobile { display: none; }
+#exportSettings button.buy-btn {
+  width: 100%; height: 44px; font-size: 14px; margin: 18px 0 0;
+  border-radius: 10px;
+}
+#exportSettings button.buy-btn + #exportStart { margin-top: 10px; }
 
-#buyPanel { text-align: left; max-width: 380px; }
+/* Панель PRO лежит вне плеера и всплывает поверх всего, в том числе
+   поверх окна экспорта: покупку открывают и с лендинга, и из плеера,
+   и закрывать ради неё окно экспорта неправильно. */
+#proOverlay {
+  position: fixed; inset: 0; z-index: 4000;
+  display: none; align-items: center; justify-content: center;
+  padding: 20px; background: rgba(7, 10, 16, 0.72); backdrop-filter: blur(6px);
+}
+#proOverlay.visible { display: flex; }
+#proBox {
+  text-align: left; width: 100%; max-width: 380px;
+  max-height: calc(100vh - 40px); overflow-y: auto;
+  background: var(--p-panel-solid, #121826); color: var(--p-text, #e6ebf5);
+  border: 1px solid var(--p-border, rgba(255,255,255,0.1));
+  border-radius: 18px; padding: 28px 24px;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.5);
+}
+#proBox button { font-family: inherit; cursor: pointer; }
+/* Кнопка оплаты — <button>, а не ссылка: перед переходом создаётся платёж.
+   Общий вид ей задаёт .buy-go, здесь только ширина и снятая рамка. */
+#proBox button.buy-go { width: 100%; border: none; }
+/* Причина, по которой панель открылась: человек нажал на запертую кнопку
+   и должен увидеть ответ на свой вопрос, а не общее предложение. */
+.buy-reason {
+  margin: 18px 0 0; padding: 10px 12px; border-radius: 10px;
+  background: rgba(245, 158, 11, 0.12); border: 1px solid rgba(245, 158, 11, 0.35);
+  color: var(--p-text); font-size: 13.5px; font-weight: 600; text-align: center;
+}
 .buy-title { font-size: 20px; font-weight: 800; color: var(--p-text);
   text-align: center; letter-spacing: -0.01em; }
 .buy-price { display: flex; align-items: baseline; justify-content: center;
@@ -676,6 +803,7 @@ body.in-player { overflow: hidden; }
 
 @media (max-width: 640px) {
   .site-header nav { display: none; }
+  .pro-btn { margin-left: auto; }
   .cards, .formats-grid { grid-template-columns: 1fr; }
   .hero { padding: 44px 0 40px; }
   .hero .sub { font-size: 15.5px; margin-bottom: 28px; }
@@ -701,10 +829,10 @@ body.in-player { overflow: hidden; }
   #player button { width: 44px; height: 44px; }
   #player select { padding: 11px 6px; flex: 1 1 40%; min-width: 0; font-size: 11.5px; }
   #videoBtn { flex: 1 1 auto; justify-content: center; }
-  /* Кнопка покупки на телефоне всё равно переносится на свою строку —
-     пусть занимает её целиком, иначе полупустая строка читается как сбой
-     вёрстки, а не как отдельное действие */
-  #player button.buy-btn { flex: 1 1 100%; width: auto; height: 44px; }
+  /* На телефоне кнопка покупки уезжает из панели плеера в окно экспорта:
+     в панели она занимала целую строку и теснила управление */
+  #player #controls button.buy-btn { display: none; }
+  #player button.buy-btn.only-mobile { display: block; }
   /* Камера включена по умолчанию, и на телефоне это единственный
      осмысленный режим — прячем переключатель, экономя строку */
   #player label.follow { display: none; }
