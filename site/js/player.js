@@ -1082,13 +1082,38 @@ const WBPlayer = (() => {
   // ---------------------------------------------------------------- экспорт видео
   let exportAbort = false;
 
-  // «осталось 40 с» / «осталось 3 мин» — округляем грубо, точность здесь
-  // не нужна, нужна уверенность, что процесс идёт.
+  // «45 секунд» / «3 минуты» — округляем грубо, точность здесь не нужна,
+  // нужна уверенность, что процесс идёт и когда он кончится.
   function fmtLeft(sec) {
     if (!isFinite(sec) || sec < 0) return '';
-    if (sec < 90) return Math.max(1, Math.round(sec / 5) * 5) + ' с';
-    return Math.round(sec / 60) + ' ' +
-           plural(Math.round(sec / 60), ['минута', 'минуты', 'минут']);
+    if (sec < 10) return 'меньше 10 секунд';
+    if (sec < 90) {
+      const n = Math.round(sec / 5) * 5;
+      return n + ' ' + plural(n, ['секунда', 'секунды', 'секунд']);
+    }
+    const m = Math.round(sec / 60);
+    return m + ' ' + plural(m, ['минута', 'минуты', 'минут']);
+  }
+
+  // Оценка остатка. Считаем по средней скорости с начала этапа, а не по
+  // мгновенной: на телефоне отдельные кадры идут рывками, и мгновенная
+  // оценка скакала бы от секунд до минут, а такому прогнозу не верят.
+  // Первые мгновения молчим — по трём кадрам предсказывать нечего.
+  function makeEta() {
+    let t0 = 0, text = '', shownAt = 0;
+    return (done, total) => {
+      const now = performance.now();
+      if (!t0) { t0 = now; return ''; }
+      const el = (now - t0) / 1000;
+      if (done <= 0 || el < 1.5) return text;
+      // Обновляем раз в секунду: текст, дёргающийся каждый кадр, читать
+      // невозможно, а раз в секунду — ровно то, что просили.
+      if (now - shownAt < 1000) return text;
+      shownAt = now;
+      const left = (total - done) / (done / el);
+      text = done >= total ? '' : fmtLeft(left);
+      return text;
+    };
   }
 
   function setExportProgress(pct, text) {
@@ -1198,33 +1223,45 @@ const WBPlayer = (() => {
     // не запустится. Из тех же соображений локальны Leaflet и fflate.
     if (!window.Mp4Muxer) await loadScript('js/vendor/mp4-muxer.js');
 
+    // Уровень в строке кодека обязан соответствовать кадру. avc1.42001f —
+    // это Baseline 3.1, его потолок 1280×720; для 1080×1920 нужен 4.0,
+    // то есть avc1.420028. Проверено: браузер сам отвергает 42001f на
+    // большом кадре, и без этой пары запасным вариантом оставался только
+    // VP9, который в MP4 понимают заметно хуже.
+    const big = W * H > 1280 * 720;
     const codecs = [
-      ['avc', 'avc1.640028'], ['avc', 'avc1.42001f'], ['vp9', 'vp09.00.41.08']
+      ['avc', 'avc1.640028'],
+      ['avc', big ? 'avc1.420028' : 'avc1.42001f'],
+      ['vp9', 'vp09.00.41.08']
     ];
-    // Сначала спрашиваем именно аппаратный кодировщик и только потом любой.
-    // На компьютере разницы почти нет, на телефоне она решающая: программное
-    // кодирование H.264 в 1080×1920 идёт в разы медленнее, и минутный ролик
-    // растягивается на минуты ожидания.
+    // ПОДСКАЗКУ hardwareAcceleration ЗДЕСЬ НЕ СТАВИТЬ. Была попытка сначала
+    // просить 'prefer-hardware' — на телефоне после неё рендер вставал:
+    // доходил до середины и переставал двигаться. Аппаратный кодировщик
+    // соглашался на конфигурацию, а кадры из него не выходили, и цикл
+    // упирался в ожидание очереди.
+    //
+    // Точный механизм на устройстве не подтверждён — вероятнее всего дело
+    // в том, что 1080 не делится на 16, а аппаратные кодировщики Android
+    // такое выравнивание требуют. Проверять это можно только на настоящем
+    // телефоне, поэтому подсказка убрана до тех пор, пока не будет чем
+    // проверить. Без неё браузер выбирает сам и работает.
     let chosen = null;
-    for (const accel of ['prefer-hardware', 'no-preference']) {
-      for (const [mux, codec] of codecs) {
-        let sup = null;
-        try {
-          sup = await VideoEncoder.isConfigSupported({
-            codec, width: W, height: H, bitrate: BITRATE, framerate: FPS,
-            hardwareAcceleration: accel
-          });
-        } catch (e) { /* браузер не знает такой кодек или подсказку */ }
-        if (sup && sup.supported) { chosen = { mux, codec, accel }; break; }
-      }
-      if (chosen) break;
+    for (const [mux, codec] of codecs) {
+      const sup = await VideoEncoder.isConfigSupported(
+        { codec, width: W, height: H, bitrate: BITRATE, framerate: FPS });
+      if (sup.supported) { chosen = { mux, codec }; break; }
     }
     if (!chosen) throw new Error('нет поддерживаемого кодека');
 
     const { phases, arrivals, totalMs } = buildPhases(W, H);
     const keys = collectTiles(phases, W, H);
     tilesAborted = false;
-    await loadTiles(keys, (d, t) => setExportProgress(d / t * 12, 'Готовим карту...'));
+    const mapEta = makeEta();
+    await loadTiles(keys, (d, t) => {
+      const left = mapEta(d, t);
+      setExportProgress(d / t * 12,
+        'Готовим карту' + (left ? ' — осталось ' + left : '') + '.');
+    });
     if (exportAbort) return;
 
     const canvas = document.createElement('canvas');
@@ -1242,12 +1279,12 @@ const WBPlayer = (() => {
       error: e => { encError = e; }
     });
     encoder.configure({ codec: chosen.codec, width: W, height: H,
-                        bitrate: BITRATE, framerate: FPS,
-                        hardwareAcceleration: chosen.accel });
+                        bitrate: BITRATE, framerate: FPS });
 
     const totalFrames = Math.ceil(totalMs / 1000 * FPS);
     const usPerFrame = Math.round(1_000_000 / FPS);
-    const tRender = performance.now();
+    const renderEta = makeEta();
+    let stalled = 0;
 
     for (let f = 0; f < totalFrames; f++) {
       if (exportAbort) { try { encoder.close(); } catch (e) {} return; }
@@ -1263,26 +1300,32 @@ const WBPlayer = (() => {
       vf.close();
 
       if (encoder.encodeQueueSize > 8) {
+        const wasQueue = encoder.encodeQueueSize;
         await new Promise(r => {
           const h = () => { encoder.removeEventListener('dequeue', h); r(); };
           encoder.addEventListener('dequeue', h);
           setTimeout(() => { encoder.removeEventListener('dequeue', h); r(); }, 500);
         });
+        // Кодировщик может принять настройку и не выдавать кадры вовсе —
+        // так вело себя аппаратное кодирование на телефоне. Раньше это
+        // выглядело как вечный рендер: каждый кадр упирался в ожидание
+        // по полсекунды, и полторы тысячи кадров растягивались на четверть
+        // часа. Теперь сдаёмся через десяток секунд молчания, и runExport
+        // уходит на запасной способ записи.
+        if (encoder.encodeQueueSize >= wasQueue) {
+          if (++stalled > 20) throw new Error('кодировщик перестал отвечать');
+        } else {
+          stalled = 0;
+        }
       }
       if (f % 3 === 0) {
-        // Скорость и остаток показываем не для красоты: на телефоне рендер
-        // идёт минутами, и без них ожидание неотличимо от зависания.
-        // Заодно это единственная цифра, по которой видно, что кодирование
-        // пошло программным путём.
-        let note = '';
-        if (f >= 15) {
-          const fps = f / ((performance.now() - tRender) / 1000);
-          note = ' — ' + fps.toFixed(1) + ' кадр/с, осталось ' +
-                 fmtLeft((totalFrames - f) / fps);
-        }
+        // Про «можно свернуть вкладку» здесь не пишем: на телефоне это
+        // неправда — переключение на другое приложение усыпляет страницу,
+        // и рендер останавливается. Вместо обещания — просьба не уходить.
+        const left = renderEta(f, totalFrames);
         setExportProgress(12 + f / totalFrames * 86,
-          'Рендерим видео покадрово' + note +
-          '. Вкладку можно свернуть, рендер продолжится.');
+          'Готовим видео' + (left ? ' — осталось ' + left : '') +
+          '. Не закрывайте страницу.');
         await nextTick();
       }
     }
@@ -1298,7 +1341,12 @@ const WBPlayer = (() => {
     const { phases, arrivals, totalMs } = buildPhases(W, H);
     const keys = collectTiles(phases, W, H);
     tilesAborted = false;
-    await loadTiles(keys, (d, t) => setExportProgress(d / t * 15, 'Готовим карту...'));
+    const rtMapEta = makeEta();
+    await loadTiles(keys, (d, t) => {
+      const left = rtMapEta(d, t);
+      setExportProgress(d / t * 15,
+        'Готовим карту' + (left ? ' — осталось ' + left : '') + '.');
+    });
     if (exportAbort) return;
 
     const canvas = document.createElement('canvas');
