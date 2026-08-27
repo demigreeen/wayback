@@ -1396,6 +1396,10 @@ const WBPlayer = (() => {
       b.classList.toggle('sel', b.dataset.v === exportOrient));
     videoBtn.addEventListener('click', () => {
       pause();
+      // Единственное событие, которое считает счётчик: сколько раз дошли
+      // до «Скачать видео». Ни данных тренировок, ни чего-либо о самом
+      // посетителе сюда не передаётся — только факт нажатия.
+      if (typeof WBMetrika !== 'undefined') WBMetrika.goal('download_click');
       showExportView('settings');
       exportOverlay.classList.add('visible');
     });
