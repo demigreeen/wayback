@@ -452,12 +452,47 @@ const WBPlayer = (() => {
 
   // Тайлы рисуются из векторных данных в канвас. Дальше по течению ничего
   // не меняется: drawImage одинаково принимает и картинку, и канвас.
+  // Одна волна загрузки на текущем источнике. Возвращает список ключей,
+  // которые не пришли: по нему решается, дырки это или мёртвый источник.
+  function loadWave(keys, onTile) {
+    return new Promise(resolve => {
+      let idx = 0, live = 0, finished = false;
+      const failed = [];
+      const total = keys.length;
+      const fin = () => { if (!finished) { finished = true; resolve(failed); } };
+      const CONC = 16;
+      const next = () => {
+        if (finished || tilesAborted) { fin(); return; }
+        if (idx >= total) { if (live === 0) fin(); return; }
+        const key = keys[idx++];
+        const [z, x, y] = key.split('/').map(Number);
+        const gen = themeGen;
+        live++;
+        WBVectorMap.renderTile(z, x, y)
+          .then(cv => {
+            // Не пришедший тайл в кэш не кладём: он неотличим от честно
+            // пустого, а закэшированная пустышка пережила бы переход
+            // на живой источник и осталась дыркой навсегда.
+            if (cv && cv.failed) failed.push(key);
+            else if (gen === themeGen) tileCache.set(key, cv);
+          })
+          .catch(() => { failed.push(key); })
+          .then(() => {
+            live--;
+            onTile && onTile();
+            if (idx >= total && live === 0) fin(); else next();
+          });
+      };
+      for (let k = 0; k < CONC; k++) next();
+    });
+  }
+
   async function loadTiles(keys, onProgress) {
     keys = keys.filter(k => !tileCache.has(k));
     if (!keys.length) return;
     // Карта недоступна — не повод не показать анимацию: следы, подписи
     // и весь HUD рисуются поверх фона и без тайлов. Раньше здесь падало
-    // необработанным исключением, и проигрывание не начиналось вообще:
+    // необработанным исключением, и проигрывание не начиналось:
     // человек навсегда оставался на полосе «Готовим карту».
     try {
       await WBVectorMap.init(MAP.sources);
@@ -467,27 +502,34 @@ const WBPlayer = (() => {
       return;
     }
 
-    return new Promise(resolve => {
-      let done = 0, idx = 0, finished = false;
-      const total = keys.length;
-      const fin = () => { if (!finished) { finished = true; resolve(); } };
-      const CONC = 16;
-      const next = () => {
-        if (finished || tilesAborted) { fin(); return; }
-        if (idx >= total) { if (done >= total) fin(); return; }
-        const key = keys[idx++];
-        const [z, x, y] = key.split('/').map(Number);
-        const gen = themeGen;
-        WBVectorMap.renderTile(z, x, y)
-          .then(cv => { if (gen === themeGen) tileCache.set(key, cv); })
-          .catch(() => { /* тайл не пришёл — нарисуется родительский */ })
-          .then(() => {
-            done++; onProgress && onProgress(done, total);
-            done >= total ? fin() : next();
-          });
-      };
-      for (let k = 0; k < CONC; k++) next();
-    });
+    // Источник, прошедший проверку, ещё не обязан выдержать нагрузку.
+    // Проверочный запрос один, а тут их сотни, и тайлы на рабочем зуме
+    // весят по сотне килобайт: у мобильных операторов мелкое проходит,
+    // крупное — нет. Поэтому следим за долей неудач и на ходу уходим
+    // к следующему источнику. Именно из-за этого карта была в превью,
+    // но пропадала в рендере видео, где тайлов нужно на порядок больше.
+    const total = keys.length;
+    let done = 0;
+    const tick = () => { done++; onProgress && onProgress(Math.min(done, total), total); };
+
+    let pending = keys;
+    for (let attempt = 0; attempt <= MAP.sources.length; attempt++) {
+      const failed = await loadWave(pending, tick);
+      if (tilesAborted) return;
+      // Отдельные дырки — обычное дело: у источника может не быть тайла.
+      // Их дорисует растянутый родительский, менять источник незачем.
+      if (failed.length * 2 <= pending.length) return;
+      if (!(await WBVectorMap.nextSource())) {
+        noteMapUnavailable();
+        return;
+      }
+      // Новый источник — новая схема и новые данные: всё, что успели
+      // нарисовать прежним, пересобираем.
+      tileCache.clear();
+      if (gridLayer && gridLayer.redraw) gridLayer.redraw();
+      pending = keys;
+      done = 0;
+    }
   }
 
   // ---------------------------------------------------------------- кадр

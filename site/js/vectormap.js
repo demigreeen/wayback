@@ -365,6 +365,15 @@ const WBVectorMap = (() => {
   // карту». Отсюда явный обрыв запроса.
   const SOURCE_TIMEOUT_MS = 7000;
 
+  // Проверочный тайл — настоящий, с данными: центр Москвы на зуме 12,
+  // около 130 КБ. Раньше проверка брала тайл 1/1/1 весом в три десятка
+  // байт, и источник считался живым, если проходил хоть какой-то запрос.
+  // На мобильных сетях так и бывает: мелкий запрос просачивается,
+  // а настоящие тайлы по сотне килобайт — уже нет. Тогда перебор не
+  // начинался, и карта пропадала именно там, где тайлов нужно много:
+  // в рендере видео.
+  const PROBE = { z: 12, x: 2475, y: 1280, minBytes: 1024 };
+
   function fetchWithTimeout(url, ms) {
     const ctl = new AbortController();
     const t = setTimeout(() => ctl.abort(), ms || SOURCE_TIMEOUT_MS);
@@ -372,50 +381,77 @@ const WBVectorMap = (() => {
   }
 
   async function trySource(src) {
+    let template, maxzoom;
     if (src.tiles) {
-      // Постоянный адрес: проверяем реальным тайлом, а не самим фактом
-      // существования адреса — иначе неотвечающий источник выиграл бы
-      // перебор и карта осталась бы пустой.
-      const probe = src.tiles.replace('{z}', 1).replace('{x}', 1).replace('{y}', 1);
-      const r = await fetchWithTimeout(probe);
+      template = src.tiles;
+      maxzoom = src.maxzoom || 14;
+    } else {
+      const r = await fetchWithTimeout(src.tilejson);
       if (!r.ok) throw new Error('HTTP ' + r.status);
-      await r.arrayBuffer();
-      return { template: src.tiles, maxzoom: src.maxzoom || 14 };
+      const j = await r.json();
+      if (!j.tiles || !j.tiles.length) throw new Error('в TileJSON нет tiles');
+      template = j.tiles[0];
+      maxzoom = typeof j.maxzoom === 'number' ? j.maxzoom : 14;
     }
-    const r = await fetchWithTimeout(src.tilejson);
-    if (!r.ok) throw new Error('HTTP ' + r.status);
-    const j = await r.json();
-    if (!j.tiles || !j.tiles.length) throw new Error('в TileJSON нет tiles');
-    return { template: j.tiles[0],
-             maxzoom: typeof j.maxzoom === 'number' ? j.maxzoom : 14 };
+
+    // Источник живой, только если отдаёт настоящий тайл целиком
+    const probe = template.replace('{z}', PROBE.z)
+                          .replace('{x}', PROBE.x).replace('{y}', PROBE.y);
+    const pr = await fetchWithTimeout(probe);
+    if (!pr.ok) throw new Error('HTTP ' + pr.status + ' на проверочном тайле');
+    const bytes = (await pr.arrayBuffer()).byteLength;
+    if (bytes < PROBE.minBytes) {
+      throw new Error('проверочный тайл пуст (' + bytes + ' Б)');
+    }
+    return { template, maxzoom };
   }
 
   // sources — список источников по убыванию предпочтения. Перебираем, пока
   // какой-нибудь не ответит: основной идёт через Cloudflare, а он у части
   // мобильных операторов в России недоступен, и без запасных карта у таких
   // посетителей не появлялась вовсе.
+  // Список и позиция в нём хранятся, чтобы можно было перейти дальше уже
+  // после запуска: источник, прошедший проверку, может отвалиться под
+  // нагрузкой — сотни тайлов подряд это не один проверочный запрос.
+  let sourceList = [];
+  let sourceIdx = -1;
+
+  // Переход к следующему источнику. Возвращает его или null, если
+  // запасных больше нет. Разобранные данные сбрасываем: они принадлежали
+  // прежнему источнику и его схеме.
+  async function nextSource() {
+    for (let i = sourceIdx + 1; i < sourceList.length; i++) {
+      const src = sourceList[i];
+      try {
+        const got = await trySource(src);
+        tilesTemplate = got.template;
+        maxDataZoom = got.maxzoom;
+        schema = SCHEMAS[src.schema] || SCHEMAS.openmaptiles;
+        usedSource = src;
+        sourceIdx = i;
+        dataCache.clear();
+        console.warn('карта: перешли на источник', src.name);
+        return src;
+      } catch (e) {
+        console.warn('карта: источник', src.name, 'не отвечает —',
+                     e && e.message ? e.message : e);
+      }
+    }
+    return null;
+  }
+
   function init(sources) {
     if (initPromise) return initPromise;
     const list = Array.isArray(sources) ? sources : [sources];
+    sourceList = list;
+    sourceIdx = -1;
     initPromise = (async () => {
-      const errors = [];
-      for (const src of list) {
-        try {
-          const got = await trySource(src);
-          tilesTemplate = got.template;
-          maxDataZoom = got.maxzoom;
-          schema = SCHEMAS[src.schema] || SCHEMAS.openmaptiles;
-          usedSource = src;
-          if (errors.length) console.warn('карта: перешли на запасной источник', src.name);
-          return tilesTemplate;
-        } catch (e) {
-          errors.push(src.name + ': ' + (e && e.message ? e.message : e));
-        }
-      }
+      const ok = await nextSource();
+      if (ok) return tilesTemplate;
       // Неудачу НЕ запоминаем: сеть могла отвалиться на минуту, и
       // запомненный отказ означал бы карту-пустышку до перезагрузки.
       initPromise = null;
-      throw new Error('ни один источник карты не ответил — ' + errors.join('; '));
+      throw new Error('ни один источник карты не ответил');
     })();
     return initPromise;
   }
@@ -475,6 +511,11 @@ const WBVectorMap = (() => {
     catch (e) {
       dataCache.delete(dzoom + '/' + dx + '/' + dy);   // дать шанс повторить
       ctx.fillStyle = C().bg; ctx.fillRect(0, 0, TILE_PX, TILE_PX);
+      // Пометка обязательна. Пустой тайл (океан) и не пришедший тайл
+      // выглядят одинаково — залитый фоном квадрат. Без пометки вызывающий
+      // клал бы такую пустышку в кэш как готовую, и переход на живой
+      // источник ничего бы не исправил: дырки остались бы навсегда.
+      cv.failed = true;
       return cv;
     }
 
@@ -516,6 +557,6 @@ const WBVectorMap = (() => {
     return cv;
   }
 
-  return { init, renderTile, decodeTile, TILE_PX, bg: () => C().bg,
-           source: () => usedSource };
+  return { init, nextSource, renderTile, decodeTile, TILE_PX,
+           bg: () => C().bg, source: () => usedSource };
 })();
