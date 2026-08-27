@@ -53,6 +53,55 @@ const WBVectorMap = (() => {
     suburb: 10, quarter: 9.5, neighbourhood: 9.5, hamlet: 9.5
   };
 
+  // ---------------------------------------------------------------- схемы
+  // Источников тайлов несколько, и отдают они РАЗНЫЕ схемы. Основной —
+  // OpenMapTiles, запасные — Shortbread: другие имена слоёв и другие
+  // названия классов дорог и населённых пунктов. Приводим всё к словарю
+  // OpenMapTiles, чтобы стиль выше (ROAD_SPECS, PLACE_MINZ) остался один
+  // на всех и его не пришлось дублировать под каждый источник.
+  const GREEN = /wood|forest|grass|park|scrub|meadow|garden|heath|orchard|vineyard/;
+
+  // Виды дорог Shortbread → классы OpenMapTiles
+  const SB_ROAD = {
+    motorway: 'motorway', trunk: 'trunk', primary: 'primary',
+    secondary: 'secondary', tertiary: 'tertiary',
+    unclassified: 'minor', residential: 'minor', living_street: 'minor',
+    pedestrian: 'minor', service: 'service', track: 'service', busway: 'minor'
+  };
+
+  const SCHEMAS = {
+    // Заливки идут по порядку, от общего к частному
+    openmaptiles: {
+      fills: [
+        { name: 'landuse', color: 'landuse' },
+        { name: 'landcover', color: 'green', filter: pr => GREEN.test(pr.class || '') },
+        { name: 'park', color: 'green' },
+        { name: 'water', color: 'water' },
+        { name: 'building', color: 'building', minZ: 14 }
+      ],
+      waterway: 'waterway', roads: 'transportation',
+      place: 'place', boundary: 'boundary',
+      roadClass: pr => pr.class || '',
+      placeClass: pr => pr.class || '',
+      placeRank: pr => pr.rank
+    },
+    shortbread: {
+      fills: [
+        { name: 'land', color: 'landuse' },
+        { name: 'land', color: 'green', filter: pr => GREEN.test(pr.kind || '') },
+        { name: 'water_polygons', color: 'water' },
+        { name: 'ocean', color: 'water' },
+        { name: 'buildings', color: 'building', minZ: 14 }
+      ],
+      waterway: 'water_lines', roads: 'streets',
+      place: 'place_labels', boundary: 'boundaries',
+      roadClass: pr => SB_ROAD[pr.kind] || '',
+      placeClass: pr => pr.kind || '',
+      // В Shortbread ранга нет — подписи упорядочатся по одному кеглю
+      placeRank: () => undefined
+    }
+  };
+
   // ---------------------------------------------------------------- MVT
   // Минимальный разбор protobuf: нужны только слои, тип геометрии,
   // одно-два свойства и координаты. Готовые библиотеки тянут лишнее.
@@ -216,15 +265,14 @@ const WBVectorMap = (() => {
       });
     };
 
-    // Заливки: от общего к частному
-    fillLayer('landuse', C().landuse);
-    fillLayer('landcover', C().green, p => /wood|forest|grass|park|scrub/.test(p.class || ''));
-    fillLayer('park', C().green);
-    fillLayer('water', C().water);
-    if (z >= 14) fillLayer('building', C().building);
+    // Заливки: от общего к частному, состав задаёт схема источника
+    for (const f of schema.fills) {
+      if (f.minZ && z < f.minZ) continue;
+      fillLayer(f.name, C()[f.color], f.filter);
+    }
 
     // Реки — линиями, иначе на средних зумах их не видно
-    const wl = byName['waterway'];
+    const wl = byName[schema.waterway];
     if (wl && z >= 10) {
       const k = TILE_PX / wl.extent;
       ctx.strokeStyle = C().water; ctx.lineWidth = 1.2;
@@ -236,7 +284,7 @@ const WBVectorMap = (() => {
     }
 
     // Дороги: от мелких к крупным, чтобы крупные лежали сверху
-    const tr = byName['transportation'];
+    const tr = byName[schema.roads];
     if (tr) {
       const k = TILE_PX / tr.extent;
       const feats = [];
@@ -251,7 +299,7 @@ const WBVectorMap = (() => {
         ctx.lineWidth = spec.w;
         ctx.beginPath();
         for (const [f, rings] of feats) {
-          const cls = f.props.class || '';
+          const cls = schema.roadClass(f.props);
           if (!spec.classes.includes(cls)) continue;
           for (const r of rings) {
             if (r.length < 4) continue;
@@ -266,13 +314,13 @@ const WBVectorMap = (() => {
     // Подписи не рисуем здесь: на стыках тайлов текст обрезался бы, а имя
     // из соседнего тайла дублировалось. Собираем их в мировых координатах,
     // а рисует player.js поверх готового кадра.
-    const pl = byName['place'];
+    const pl = byName[schema.place];
     if (pl && labels) {
       const k = TILE_PX / pl.extent;
       for (const fr of pl.features) {
         const f = decodeFeature(fr, pl);
         if (f.type !== 1) continue;
-        const cls = f.props.class || '';
+        const cls = schema.placeClass(f.props);
         const minz = PLACE_MINZ[cls];
         if (minz === undefined || z < minz) continue;
         const name = f.props['name:ru'] || f.props.name || f.props.name_en;
@@ -283,13 +331,13 @@ const WBVectorMap = (() => {
         const wx = tileOrigin[0] + rings[0][0] * k * worldScale;
         const wy = tileOrigin[1] + rings[0][1] * k * worldScale;
         labels.push({ name, cls, size: PLACE_SIZE[cls] || 10,
-                      rank: (f.props.rank || 20) + (cls === 'country' ? -30 : 0),
+                      rank: (schema.placeRank(f.props) || 20) + (cls === 'country' ? -30 : 0),
                       wx, wy });
       }
     }
 
     // Границы государств — еле заметно, для ориентира на общем плане
-    const bl = byName['boundary'];
+    const bl = byName[schema.boundary];
     if (bl) {
       const k = TILE_PX / bl.extent;
       ctx.strokeStyle = C().boundary; ctx.lineWidth = 0.8;
@@ -304,19 +352,70 @@ const WBVectorMap = (() => {
   // ---------------------------------------------------------------- источник
   // У OpenFreeMap адрес тайлов версионированный и меняется при обновлении
   // планеты, поэтому берём актуальный из TileJSON один раз при старте.
+  // У запасных источников адрес постоянный и TileJSON не нужен.
   let tilesTemplate = null;
   let maxDataZoom = 14;
+  let schema = SCHEMAS.openmaptiles;
   let initPromise = null;
+  let usedSource = null;
 
-  function init(tilejsonUrl) {
+  // Заблокированная сеть чаще не отвечает ошибкой, а молча висит. Без
+  // тайм-аута перебор источников не начался бы вовсе: первый же источник
+  // держал бы очередь до бесконечности, а человек смотрел бы на «Готовим
+  // карту». Отсюда явный обрыв запроса.
+  const SOURCE_TIMEOUT_MS = 7000;
+
+  function fetchWithTimeout(url, ms) {
+    const ctl = new AbortController();
+    const t = setTimeout(() => ctl.abort(), ms || SOURCE_TIMEOUT_MS);
+    return fetch(url, { signal: ctl.signal }).finally(() => clearTimeout(t));
+  }
+
+  async function trySource(src) {
+    if (src.tiles) {
+      // Постоянный адрес: проверяем реальным тайлом, а не самим фактом
+      // существования адреса — иначе неотвечающий источник выиграл бы
+      // перебор и карта осталась бы пустой.
+      const probe = src.tiles.replace('{z}', 1).replace('{x}', 1).replace('{y}', 1);
+      const r = await fetchWithTimeout(probe);
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      await r.arrayBuffer();
+      return { template: src.tiles, maxzoom: src.maxzoom || 14 };
+    }
+    const r = await fetchWithTimeout(src.tilejson);
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const j = await r.json();
+    if (!j.tiles || !j.tiles.length) throw new Error('в TileJSON нет tiles');
+    return { template: j.tiles[0],
+             maxzoom: typeof j.maxzoom === 'number' ? j.maxzoom : 14 };
+  }
+
+  // sources — список источников по убыванию предпочтения. Перебираем, пока
+  // какой-нибудь не ответит: основной идёт через Cloudflare, а он у части
+  // мобильных операторов в России недоступен, и без запасных карта у таких
+  // посетителей не появлялась вовсе.
+  function init(sources) {
     if (initPromise) return initPromise;
+    const list = Array.isArray(sources) ? sources : [sources];
     initPromise = (async () => {
-      const r = await fetch(tilejsonUrl);
-      const j = await r.json();
-      if (!j.tiles || !j.tiles.length) throw new Error('в TileJSON нет tiles');
-      tilesTemplate = j.tiles[0];
-      if (typeof j.maxzoom === 'number') maxDataZoom = j.maxzoom;
-      return tilesTemplate;
+      const errors = [];
+      for (const src of list) {
+        try {
+          const got = await trySource(src);
+          tilesTemplate = got.template;
+          maxDataZoom = got.maxzoom;
+          schema = SCHEMAS[src.schema] || SCHEMAS.openmaptiles;
+          usedSource = src;
+          if (errors.length) console.warn('карта: перешли на запасной источник', src.name);
+          return tilesTemplate;
+        } catch (e) {
+          errors.push(src.name + ': ' + (e && e.message ? e.message : e));
+        }
+      }
+      // Неудачу НЕ запоминаем: сеть могла отвалиться на минуту, и
+      // запомненный отказ означал бы карту-пустышку до перезагрузки.
+      initPromise = null;
+      throw new Error('ни один источник карты не ответил — ' + errors.join('; '));
     })();
     return initPromise;
   }
@@ -417,5 +516,6 @@ const WBVectorMap = (() => {
     return cv;
   }
 
-  return { init, renderTile, decodeTile, TILE_PX, bg: () => C().bg };
+  return { init, renderTile, decodeTile, TILE_PX, bg: () => C().bg,
+           source: () => usedSource };
 })();

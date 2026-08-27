@@ -187,6 +187,9 @@ const WBLicense = (() => {
 
   return {
     ready,
+    // Наружу отдаётся и всплывающее сообщение: заводить второй такой же
+    // в player.js незачем, стиль .wb-toast всё равно один на весь сайт.
+    toast,
     isPaid: () => paid,
     order: () => order,
     price: () => PRICE,

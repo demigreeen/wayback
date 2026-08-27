@@ -61,15 +61,36 @@ const WBPlayer = (() => {
   // Чистый путь — свои тайлы из данных OpenStreetMap: там рендер считается
   // «Produced Work», распространять его можно свободно, нужна лишь атрибуция.
   // Подробности и план перехода — в docs/MAPS.md.
+  //
+  // ИСТОЧНИКОВ НЕСКОЛЬКО, и это не запас на всякий случай. Основной,
+  // OpenFreeMap, стоит за Cloudflare, а Cloudflare у части мобильных
+  // операторов в России недоступен — у таких посетителей карта не
+  // появлялась вовсе, и демо зависало на «Готовим карту». Запасные
+  // выбраны так, чтобы не зависеть от Cloudflare: VersaTiles — свой
+  // хостинг, тайлы OpenStreetMap — Fastly.
+  //
+  // Схема слоёв у запасных другая (Shortbread против OpenMapTiles),
+  // приведение к общему словарю живёт в vectormap.js.
   const MAP = {
     // Векторные тайлы OpenStreetMap. Картинку рисуем сами (js/vectormap.js),
     // поэтому готовый кадр — наш Produced Work по ODbL: распространять
     // в видео можно свободно, нужна только атрибуция.
-    tilejson: 'https://tiles.openfreemap.org/planet',
+    sources: [
+      { name: 'OpenFreeMap', schema: 'openmaptiles',
+        tilejson: 'https://tiles.openfreemap.org/planet' },
+      { name: 'VersaTiles', schema: 'shortbread', maxzoom: 14,
+        tiles: 'https://tiles.versatiles.org/tiles/osm/{z}/{x}/{y}' },
+      { name: 'OSM vector', schema: 'shortbread', maxzoom: 14,
+        tiles: 'https://vector.openstreetmap.org/shortbread_v1/{z}/{x}/{y}.mvt' }
+    ],
     maxZoom: 20,
     attribution: '© OpenStreetMap',
     commercial: true
   };
+
+  // Карта не обязательна: без неё следы и подписи всё равно рисуются.
+  // Флаг нужен, чтобы не молчать — человек должен понимать, почему фон пуст.
+  let mapUnavailable = false;
 
   const ATTRIB = MAP.attribution;
 
@@ -434,7 +455,17 @@ const WBPlayer = (() => {
   async function loadTiles(keys, onProgress) {
     keys = keys.filter(k => !tileCache.has(k));
     if (!keys.length) return;
-    await WBVectorMap.init(MAP.tilejson);
+    // Карта недоступна — не повод не показать анимацию: следы, подписи
+    // и весь HUD рисуются поверх фона и без тайлов. Раньше здесь падало
+    // необработанным исключением, и проигрывание не начиналось вообще:
+    // человек навсегда оставался на полосе «Готовим карту».
+    try {
+      await WBVectorMap.init(MAP.sources);
+    } catch (e) {
+      console.warn('карта:', e && e.message ? e.message : e);
+      noteMapUnavailable();
+      return;
+    }
 
     return new Promise(resolve => {
       let done = 0, idx = 0, finished = false;
@@ -856,6 +887,19 @@ const WBPlayer = (() => {
   // головы: ждать всю карту ради первых секунд бессмысленно, а если фон
   // отстанет, кадр подставит растянутый родительский тайл.
   const FIRST_WAVE_MS = 5000;
+
+  // Сообщение показываем один раз за запуск: тайлы просят десятки раз,
+  // и без этого человек получил бы десяток одинаковых плашек.
+  function noteMapUnavailable() {
+    if (mapUnavailable) return;
+    mapUnavailable = true;
+    showMapLoading(false);
+    if (typeof WBLicense !== 'undefined' && WBLicense.toast) {
+      WBLicense.toast('Карта не загрузилась — показываем без неё. ' +
+                      'Похоже, её сервер недоступен у вашего оператора связи.', true);
+    }
+    if (counterEl) counterEl.textContent = 'карта недоступна';
+  }
 
   function showMapLoading(on, pct) {
     const el = $('mapLoading');
@@ -1560,7 +1604,11 @@ const WBPlayer = (() => {
     });
     // Интерактивная карта рисуется тем же движком, что и кадры видео,
     // поэтому пауза и проигрывание выглядят одинаково
-    WBVectorMap.init(MAP.tilejson).catch(e => console.warn('карта:', e));
+    mapUnavailable = false;
+    WBVectorMap.init(MAP.sources).catch(e => {
+      console.warn('карта:', e && e.message ? e.message : e);
+      noteMapUnavailable();
+    });
     gridLayer = new VectorGridLayer({
       maxZoom: MAP.maxZoom, attribution: MAP.attribution, keepBuffer: 6
     }).addTo(map);
