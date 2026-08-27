@@ -33,7 +33,7 @@ const WBMetrika = (() => {
   // НОМЕР СЧЁТЧИКА Яндекс.Метрики. Пустое значение (0) выключает счётчик
   // целиком: скрипт Метрики не загружается и наружу не уходит ничего.
   // Взять номер: metrika.yandex.ru -> счётчик -> «Настройка» -> «Номер».
-  const COUNTER_ID = 0;
+  const COUNTER_ID = 112006053;
 
   let ready = false;
   const queue = [];
@@ -58,14 +58,21 @@ const WBMetrika = (() => {
       k = e.createElement(t); a = e.getElementsByTagName(t)[0];
       k.async = 1; k.src = r; a.parentNode.insertBefore(k, a);
     })(window, document, 'script',
-       'https://mc.yandex.ru/metrika/tag.js', 'ym');
+       'https://mc.yandex.ru/metrika/tag.js?id=' + COUNTER_ID, 'ym');
     /* eslint-enable */
 
+    // Набор отличается от кода, который выдаёт Метрика при создании
+    // счётчика, и отличия намеренные:
+    //   webvisor  — выключен, см. пункт 1 в шапке файла;
+    //   ecommerce — не нужен, товар один и продаётся не корзиной;
+    //   url и referrer — не передаём вручную. Метрика возьмёт их сама,
+    //     а ручная передача location.href — это ровно тот случай, от
+    //     которого бережёт пункт 2: адрес мог бы уехать вместе с ключом;
+    //   ssr — про серверный рендеринг, а сайт статический.
     window.ym(COUNTER_ID, 'init', {
       clickmap: true,
       trackLinks: true,
       accurateTrackBounce: true,
-      // Вебвизор выключен намеренно — см. пункт 1 в шапке файла
       webvisor: false
     });
 
