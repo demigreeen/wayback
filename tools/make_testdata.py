@@ -5,6 +5,8 @@
   strava_export.zip  — activities/*.gpx.gz, *.fit.gz, *.tcx.gz + activities.csv
   garmin_export.zip  — вложенный ZIP с FIT-файлами
   huawei_export.zip  — motion path detail data.json в формате HiTrack
+  huawei_aes.zip     — то же под паролем WinZip AES, как присылает Huawei
+                       (нужен 7-Zip; без него фикстура пропускается)
   plain.gpx          — одиночный файл
   strava_big.zip     — 300 тренировок как в живой выгрузке (только с --big):
                        на мелких фикстурах не видна цена обращений к файлу
@@ -22,8 +24,11 @@ import gzip
 import json
 import io
 import math
+import shutil
 import struct
+import subprocess
 import sys
+import tempfile
 import zipfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -184,6 +189,38 @@ def make_huawei(activities) -> bytes:
         })
     return json.dumps(out, ensure_ascii=False).encode("utf-8")
 
+
+# Пароль фикстуры. Тот же указан в verify.html — если менять, то в обоих местах.
+HUAWEI_AES_PW = "wayback-test"
+
+SEVENZIP = shutil.which("7z") or shutil.which("7za") or next(
+    (p for p in (r"C:\Program Files\7-Zip\7z.exe",
+                 r"C:\Program Files (x86)\7-Zip\7z.exe") if Path(p).exists()), None)
+
+
+def make_huawei_aes(payload: bytes, dest: Path) -> bool:
+    """Та же выгрузка Huawei, но закрытая паролем — так она и приходит.
+
+    Пишется через 7-Zip: AES в zipfile нет, а тащить ради одной фикстуры
+    стороннюю библиотеку не хочется. Нет 7-Zip — фикстуры просто не будет,
+    остальные от этого не страдают.
+    """
+    if not SEVENZIP:
+        return False
+    with tempfile.TemporaryDirectory() as tmp:
+        d = Path(tmp) / "Motion path detail data & description"
+        d.mkdir(parents=True)
+        # Имя как в живой выгрузке: файлов много, каждый с меткой времени
+        (d / "motion path detail data1787494332969.json").write_bytes(payload)
+        if dest.exists():
+            dest.unlink()
+        r = subprocess.run(
+            [SEVENZIP, "a", "-tzip", "-mem=AES256", "-p" + HUAWEI_AES_PW,
+             "-bso0", "-bsp0", str(dest), str(d)],
+            capture_output=True)
+    return r.returncode == 0 and dest.exists()
+
+
 # ----------------------------------------------------------------- сборка
 # Переезд: два города одной страны, затем другая страна
 LYON = (45.7640, 4.8357)
@@ -248,13 +285,18 @@ def build():
         city = BARCELONA if i < 5 else LYON
         acts.append((loop(city[0] + i * 0.002, city[1] - i * 0.003, n=40, phase=i * 1.3),
                      day, 4 if i % 3 else 5))          # 4 = бег, 5 = ходьба
+    payload = make_huawei(acts)
     hw = io.BytesIO()
     with zipfile.ZipFile(hw, "w", zipfile.ZIP_DEFLATED) as z:
         z.writestr("data/Motion path detail data & description/"
-                   "motion path detail data.json", make_huawei(acts))
+                   "motion path detail data.json", payload)
         z.writestr("data/Motion path detail data & description/description.txt",
                    "field descriptions")
     (OUT / "huawei_export.zip").write_bytes(hw.getvalue())
+
+    # ---------- Huawei под паролем ----------
+    if not make_huawei_aes(payload, OUT / "huawei_aes.zip"):
+        print("huawei_aes.zip пропущен: не найден 7-Zip")
 
     # ---------- одиночный GPX ----------
     (OUT / "plain.gpx").write_bytes(
