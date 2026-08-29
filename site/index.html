@@ -100,7 +100,7 @@
       <div class="formats-grid">
         <div class="fmt"><b>Strava</b><span>bulk export: activities с .gpx.gz / .fit.gz / .tcx.gz + activities.csv</span></div>
         <div class="fmt"><b>Garmin</b><span>GDPR-архив с вложенными ZIP и FIT-файлами</span></div>
-        <div class="fmt"><b>Huawei</b><span>выгрузка Privacy Center: motion path detail data.json</span></div>
+        <div class="fmt"><b>Huawei</b><span>выгрузка Privacy Center под паролем: motion path detail data.json</span></div>
       </div>
       <details class="howto">
         <summary>Как запросить архив в Strava</summary>
@@ -130,10 +130,14 @@
         <p class="howto-path">Я → нажать на своё имя → Конфиденциальность →
           Запрос данных → подтверждение личности → в разделе Huawei Mobile
           Services отметить <b>Здоровье</b> → размер файла <b>5G</b> → ОК</p>
-        <p class="howto-wait">Ожидание: от пары минут до пары часов</p>
+        <p class="howto-wait">Ожидание: до недели</p>
         <p>Отмечайте только «Здоровье»: «Выбрать все» раздует архив почтой,
           темами и покупками. Размер <b>5G</b> нужен, чтобы архив пришёл одним
           файлом — разрезанный на части WayBack не соберёт.</p>
+        <p>Huawei закрывает выгрузку <b>паролем</b> — тем самым, который вы
+          задаёте при заказе. Сохраните его: WayBack спросит пароль при
+          загрузке и расшифрует архив прямо в браузере, распаковывать
+          архиватором ничего не нужно.</p>
       </details>
 
       <p class="howto-note">Во всех трёх случаях ссылка приходит письмом на
@@ -168,6 +172,21 @@
     <div class="modal-title">Разбираем архив…</div>
     <div class="bar"><div id="parseBarFill"></div></div>
     <div id="parseStatus" class="modal-sub">Читаем файлы...</div>
+  </div>
+</div>
+
+<!-- ─── архив под паролем ─── -->
+<div id="pwOverlay" class="modal-overlay">
+  <div class="modal">
+    <div class="modal-title">Архив закрыт паролем</div>
+    <div class="modal-sub" id="pwHint"></div>
+    <input id="pwInput" class="pw-input" type="password" autocomplete="off"
+           autocapitalize="off" spellcheck="false" placeholder="Пароль от архива"
+           aria-label="Пароль от архива">
+    <button class="btn primary big" id="pwOk" type="button">Открыть архив</button>
+    <button class="linklike" id="pwCancel" type="button">Отмена</button>
+    <div class="modal-note">🔒 Пароль никуда не отправляется: архив
+      расшифровывается здесь же, в браузере.</div>
   </div>
 </div>
 
@@ -342,6 +361,7 @@
 <script src="js/metrika.js?v=dev"></script>
 <script src="js/pro.js?v=dev"></script>
 <script src="js/footer.js?v=dev"></script>
+<script src="js/zipaes.js?v=dev"></script>
 <script src="js/parse.js?v=dev"></script>
 <script src="js/player.js?v=dev"></script>
 <script src="js/app.js?v=dev"></script>

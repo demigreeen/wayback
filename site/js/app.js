@@ -15,6 +15,12 @@
   const parseBarFill = $('parseBarFill');
   const parseStatus  = $('parseStatus');
 
+  const pwOverlay  = $('pwOverlay');
+  const pwHint     = $('pwHint');
+  const pwInput    = $('pwInput');
+  const pwOk       = $('pwOk');
+  const pwCancel   = $('pwCancel');
+
   const summaryOverlay = $('summaryOverlay');
   const sumCount   = $('sumCount');
   const sumMeta    = $('sumMeta');
@@ -64,6 +70,45 @@
     }
   }
 
+  // ------------------------------------------------------------ пароль архива
+  // Выгрузка Huawei приходит зашифрованной, пароль человек задавал сам.
+  // Спрашиваем ровно тогда, когда закрытая запись действительно встретилась,
+  // и повторяем, пока не подойдёт: ошибиться в длинном пароле легко.
+  // Прогресс на это время убираем — два окна друг на друге читаются плохо.
+  function askPassword(attempt) {
+    return new Promise(resolve => {
+      const underParse = parseOverlay.classList.contains('visible');
+      parseOverlay.classList.remove('visible');
+
+      pwHint.textContent = attempt
+        ? 'Пароль не подошёл. Проверьте раскладку и попробуйте ещё раз.'
+        : 'Huawei присылает выгрузку зашифрованной. Введите пароль, который ' +
+          'вы задали, когда заказывали копию данных.';
+      pwHint.classList.toggle('bad', attempt > 0);
+      pwInput.value = '';
+      pwOverlay.classList.add('visible');
+      pwInput.focus();
+
+      const close = value => {
+        pwOverlay.classList.remove('visible');
+        pwOk.removeEventListener('click', onOk);
+        pwCancel.removeEventListener('click', onCancel);
+        pwInput.removeEventListener('keydown', onKey);
+        if (underParse) parseOverlay.classList.add('visible');
+        resolve(value);
+      };
+      const onOk = () => { if (pwInput.value) close(pwInput.value); };
+      const onCancel = () => close(null);
+      const onKey = e => {
+        if (e.key === 'Enter') { e.preventDefault(); onOk(); }
+        else if (e.key === 'Escape') { e.preventDefault(); onCancel(); }
+      };
+      pwOk.addEventListener('click', onOk);
+      pwCancel.addEventListener('click', onCancel);
+      pwInput.addEventListener('keydown', onKey);
+    });
+  }
+
   async function handleFiles(files) {
     showParse(true);
     let lastPaint = 0;
@@ -79,7 +124,7 @@
           parseBarFill.style.width = (10 + (total ? done / total * 90 : 0)) + '%';
           parseStatus.textContent = `Читаем треки: ${done} из ${total}`;
         }
-      });
+      }, askPassword);
     } catch (err) {
       showParse(false);
       alert('Не удалось прочитать архив: ' + (err && err.message ? err.message : err));
@@ -89,11 +134,17 @@
     fileInput.value = '';
 
     if (!parsed.acts.length) {
-      alert('В этих файлах не нашлось тренировок, которые можно показать ' +
-            'на карте.\n\n' +
-            'Проверьте, что загружаете архив экспорта целиком (ZIP) ' +
-            'или файлы GPX / FIT / TCX. Тренировки без GPS — зал, беговая ' +
-            'дорожка — а также совсем короткие в анимацию не попадают.');
+      // Архив под паролем изнутри выглядит пустым, и «тренировок не нашлось»
+      // отправило бы человека искать несуществующую ошибку в выгрузке.
+      alert(parsed.locked
+        ? 'Архив закрыт паролем, поэтому прочитать в нём нечего.\n\n' +
+          'Huawei шифрует выгрузку: пароль вы задавали сами, когда заказывали ' +
+          'копию данных. Загрузите архив ещё раз и введите его.'
+        : 'В этих файлах не нашлось тренировок, которые можно показать ' +
+          'на карте.\n\n' +
+          'Проверьте, что загружаете архив экспорта целиком (ZIP) ' +
+          'или файлы GPX / FIT / TCX. Тренировки без GPS — зал, беговая ' +
+          'дорожка — а также совсем короткие в анимацию не попадают.');
       return;
     }
     showSummary();

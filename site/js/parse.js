@@ -3,6 +3,8 @@
 
    Поддерживается:
    - ZIP (Strava bulk export, Garmin GDPR-архив с вложенными ZIP, Polar, Suunto, COROS)
+   - ZIP под паролем по схеме WinZip AES — так приходит выгрузка Huawei
+     (расшифровка в `zipaes.js`, пароль спрашивается на месте)
    - GZIP-файлы внутри архива (.gpx.gz / .fit.gz / .tcx.gz — так пакует Strava)
    - GPX и TCX через DOMParser
    - FIT — собственный бинарный парсер (только нужные сообщения: record / session / file_id)
@@ -10,7 +12,7 @@
    - Huawei Health — motion path detail data.json (внутри формат HiTrack)
 
    Формат результата:
-   { acts: [{ts, date, name, place, type, km, lat, lon}], skipped, types: Map }
+   { acts: [{ts, date, name, place, type, km, lat, lon}], skipped, types: Map, locked }
 
    Трек читается целиком (нужен для длины дистанции, если её нет в файле),
    но наружу отдаётся одна точка на тренировку — и это НЕ точка старта:
@@ -596,13 +598,15 @@ const WBParse = (() => {
     return buf.subarray(from, from + it.csize);
   }
 
-  async function readEntry(it, r) {
+  // max — сколько байт от начала записи хватит. Нужен для проверки пароля:
+  // там достаточно соли и двух контрольных байт, а не всей записи.
+  async function readEntry(it, r, max) {
     const lh = await r.read(it.lOff, it.lOff + 30);
     if (lh.length < 30) return null;
     const lv = new DataView(lh.buffer, lh.byteOffset, lh.byteLength);
     if (lv.getUint32(0, true) !== 0x04034b50) return null;
     const from = it.lOff + 30 + lv.getUint16(26, true) + lv.getUint16(28, true);
-    return r.read(from, from + it.csize);
+    return r.read(from, from + (max ? Math.min(max, it.csize) : it.csize));
   }
 
   // Чтение архива идёт по центральному каталогу: сначала собираем список
@@ -619,7 +623,7 @@ const WBParse = (() => {
   //
   // Через большой пропуск не читаем: в выгрузке Garmin рядом с тренировками
   // лежат сотни мегабайт данных сна, и тащить их в память незачем.
-  async function zipEach(src, onEntry) {
+  async function zipEach(src, onEntry, ctx) {
     const r = makeReader(src);
     if (r.size < 22) return;
 
@@ -660,7 +664,7 @@ const WBParse = (() => {
     let p = 0;
 
     // ---- первый проход: что вообще стоит читать
-    const items = [];
+    let items = [];
     for (let k = 0; k < count && p + 46 <= cd.length; k++) {
       if (cv.getUint32(p, true) !== 0x02014b50) break;
       const flags = cv.getUint16(p + 8, true);
@@ -672,9 +676,10 @@ const WBParse = (() => {
       const cLen = cv.getUint16(p + 32, true);
       let lOff = cv.getUint32(p + 42, true);
       const name = dec.decode(cd.subarray(p + 46, p + 46 + nLen));
+      const eStart = p + 46 + nLen;
 
       if (csize === 0xFFFFFFFF || usize === 0xFFFFFFFF || lOff === 0xFFFFFFFF) {
-        let q = p + 46 + nLen;
+        let q = eStart;
         const end = q + eLen;
         while (q + 4 <= end) {
           const id = cv.getUint16(q, true), len = cv.getUint16(q + 2, true);
@@ -691,13 +696,22 @@ const WBParse = (() => {
       p += 46 + nLen + eLen + cLen;
 
       if (!name || name.endsWith('/') || !csize) continue;
-      if (flags & 1) continue;                        // зашифровано
-      if (method !== 0 && method !== 8) continue;     // не «как есть» и не deflate
       if (usize > MAX_ENTRY) continue;
       if (!INTERESTING.test(name)) continue;
 
+      // Запись под паролем. У WinZip AES настоящий метод сжатия и длина
+      // ключа лежат в дополнительном поле, а method помечен числом 99.
+      // Нет этого поля — шифрование чужое (ZipCrypto), читать не умеем.
+      let aes = null;
+      if (flags & 1) {
+        aes = WBZipAES.info(cd.subarray(eStart, eStart + eLen));
+        if (!aes) { ctx.locked++; continue; }
+      }
+      const cmeth = aes ? aes.method : method;
+      if (cmeth !== 0 && cmeth !== 8) continue;       // не «как есть» и не deflate
+
       items.push({
-        name, lOff, csize, usize, method,
+        name, lOff, csize, usize, aes, method: cmeth,
         end: lOff + 30 + nLen + eLen + csize + LOCAL_SLACK
       });
     }
@@ -705,6 +719,27 @@ const WBParse = (() => {
     // Порядок в каталоге может не совпадать с порядком в файле, а читать
     // выгодно по возрастанию смещения
     items.sort((a, b) => a.lOff - b.lOff);
+
+    // Архив под паролем. Спрашиваем один раз на всю загрузку и тут же
+    // сверяем по первой зашифрованной записи: для этого хватает её первых
+    // байт, а перемолоть сотни мегабайт чужим ключом и понять это в конце —
+    // худшее, что тут можно сделать. Пароль общий и на вложенные архивы.
+    const enc = items.find(it => it.aes);
+    if (enc && !ctx.pwKey && ctx.askPassword && WBZipAES.ready()) {
+      const head = await readEntry(enc, r, WBZipAES.headLen(enc.aes.strength));
+      for (let tries = 0; head; tries++) {
+        const pw = await ctx.askPassword(tries);
+        if (!pw) break;                              // передумали
+        const k = await WBZipAES.key(pw);
+        if (!k) break;                               // считать ключ нечем
+        if (await WBZipAES.check(head, enc.aes.strength, k)) { ctx.pwKey = k; break; }
+      }
+    }
+    // Без ключа зашифрованное читать незачем: это десятки мегабайт впустую
+    if (enc && !ctx.pwKey) {
+      for (const it of items) if (it.aes) ctx.locked++;
+      items = items.filter(it => !it.aes);
+    }
 
     // ---- второй проход: читаем пачками
     let i = 0;
@@ -729,6 +764,11 @@ const WBParse = (() => {
         try {
           if (!raw) raw = await readEntry(it, r);      // не поместилась в пачку
           if (!raw || raw.length < it.csize) continue;
+          if (it.aes) {
+            // open() снимает шифр в своей копии — общий буфер пачки цел
+            raw = await WBZipAES.open(raw, it.aes.strength, ctx.pwKey);
+            if (!raw) { ctx.locked++; continue; }
+          }
           const out = it.method === 0
             ? raw
             : fflate.inflateSync(raw, it.usize ? { out: new Uint8Array(it.usize) } : undefined);
@@ -754,15 +794,15 @@ const WBParse = (() => {
 
   // Рекурсивный обход: zip -> вложенные zip -> gz -> файлы.
   // Ничего не накапливаем: каждый найденный файл сразу уходит в onFile.
-  async function expand(name, src, depth, onFile) {
+  async function expand(name, src, depth, onFile, ctx) {
     if (depth > 4) return;
     const kind = sniff(name, await headBytes(src));
     if (kind === 'zip') {
-      await zipEach(src, (n, u8) => expand(n, u8, depth + 1, onFile));
+      await zipEach(src, (n, u8) => expand(n, u8, depth + 1, onFile, ctx), ctx);
     } else if (kind === 'gz') {
       let inner;
       try { inner = fflate.gunzipSync(await asU8(src)); } catch (e) { return; }
-      await expand(name.replace(/\.gz$/i, ''), inner, depth, onFile);
+      await expand(name.replace(/\.gz$/i, ''), inner, depth, onFile, ctx);
     } else if (kind) {
       await onFile(name, await asU8(src), kind);
     }
@@ -775,9 +815,15 @@ const WBParse = (() => {
     return `${p(d.getDate())}.${p(d.getMonth() + 1)}.${d.getFullYear()}`;
   }
 
-  async function parseInput(files, onProgress) {
+  // onPassword(попытка) → пароль или пустое, если человек отказался.
+  // Вызывается, только когда в архиве действительно есть закрытые записи.
+  async function parseInput(files, onProgress, onPassword) {
     const report = (stage, done, total) => onProgress && onProgress(stage, done, total);
     const decoder = new TextDecoder();
+
+    // Пароль живёт ровно один разбор: спрашивать его дважды за одну
+    // загрузку незачем, а хранить между загрузками — тем более.
+    const ctx = { askPassword: onPassword || null, pwKey: null, locked: 0 };
 
     const acts = [];
     const seen = new Set();
@@ -840,7 +886,7 @@ const WBParse = (() => {
 
     report('unpack', 0, 0);
     for (const f of files) {
-      await expand(f.name, f, 0, onFile);
+      await expand(f.name, f, 0, onFile, ctx);
     }
     report('parse', acts.length, found);
 
@@ -882,7 +928,9 @@ const WBParse = (() => {
     out.sort((x, y) => x.ts - y.ts);
     const types = new Map();
     for (const a of out) types.set(a.type, (types.get(a.type) || 0) + 1);
-    return { acts: out, skipped, types };
+    // locked — записи, оставшиеся под паролем. Без него архив выглядит
+    // пустым, и сказать об этом надо иначе, чем «тренировок не нашлось».
+    return { acts: out, skipped, types, locked: ctx.locked };
   }
 
   return { parseInput, TYPE_LABEL };
