@@ -37,7 +37,9 @@ SESSION = HERE / "tgfind"          # tgfind.session — вход в аккаун
 
 # Русский и эмодзи в названиях: без явного UTF-8 вывод в файл или в чужую
 # консоль Windows превращается в кракозябры или падает
-sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+# Под pythonw (окно без консоли) stdout нет вовсе — трогать нечего
+if sys.stdout is not None and hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 USERNAME_RE = re.compile(r"(?:t\.me/|telegram\.me/|@)([A-Za-z][A-Za-z0-9_]{4,31})", re.I)
 # Служебные адреса t.me, которые не являются чатами
@@ -271,6 +273,34 @@ def write_results(state: dict, only: str | None, min_members: int) -> int:
     return len(rows)
 
 
+async def run(queries, kw_words, cfg, threshold=5, min_members=20, only=None,
+              max_resolve=60, phone=None, code_callback=None, password=None) -> int:
+    """Один полный проход поиска. Общий для командной строки и окна.
+
+    phone, code_callback, password — для входа из окна: без них Telethon
+    спрашивает телефон и код в консоли.
+    """
+    client = TelegramClient(str(SESSION), cfg["api_id"], cfg["api_hash"])
+    client.flood_sleep_threshold = 120      # короткие паузы Telethon выждет сам
+    state = load_state()
+    login = {k: v for k, v in (("phone", phone), ("code_callback", code_callback),
+                               ("password", password)) if v}
+    try:
+        await client.start(**login)         # в первый раз — телефон и код
+        finder = Finder(client, state, kw_words, threshold, max_resolve, min_members)
+        await finder.search(queries)
+        print(f"\nПроверяем чаты: {len(finder.queue)}. «+» — подходит.\n")
+        await finder.process_queue()
+    except (KeyboardInterrupt, asyncio.CancelledError):
+        print("\nОстановлено. Прогресс сохранён — следующий запуск продолжит.")
+    finally:
+        save_state(state)
+        n = write_results(state, only, min_members)
+        print(f"\nПодходящих: {n}. Список — results.csv (Excel) и links.txt")
+        await client.disconnect()
+    return n
+
+
 async def main():
     ap = argparse.ArgumentParser(description="Поиск публичных чатов Telegram по ключевым словам")
     ap.add_argument("--queries", default=HERE / "queries.txt", type=Path,
@@ -288,9 +318,8 @@ async def main():
                     help="не искать, только пересобрать results.csv из уже найденного")
     args = ap.parse_args()
 
-    state = load_state()
     if args.export_only:
-        n = write_results(state, args.only, args.min_members)
+        n = write_results(load_state(), args.only, args.min_members)
         print(f"Готово: {n} в results.csv и links.txt")
         return
 
@@ -299,23 +328,8 @@ async def main():
     if not queries or not kw_words:
         sys.exit("queries.txt и keywords.txt не должны быть пустыми")
 
-    cfg = get_config()
-    client = TelegramClient(str(SESSION), cfg["api_id"], cfg["api_hash"])
-    client.flood_sleep_threshold = 120      # короткие паузы Telethon выждет сам
-    await client.start()                    # в первый раз спросит телефон и код
-
-    finder = Finder(client, state, kw_words, args.threshold, args.max_resolve, args.min_members)
-    try:
-        await finder.search(queries)
-        print(f"\nПроверяем чаты: {len(finder.queue)}. «+» — подходит.\n")
-        await finder.process_queue()
-    except KeyboardInterrupt:
-        print("\nОстановлено. Прогресс сохранён — следующий запуск продолжит.")
-    finally:
-        save_state(state)
-        n = write_results(state, args.only, args.min_members)
-        print(f"\nПодходящих: {n}. Список — results.csv (Excel) и links.txt")
-        await client.disconnect()
+    await run(queries, kw_words, get_config(), args.threshold, args.min_members,
+              args.only, args.max_resolve)
 
 
 if __name__ == "__main__":
