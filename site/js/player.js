@@ -322,15 +322,53 @@ const WBPlayer = (() => {
     return Math.max(1.5, Math.min(8, Math.log2(meters / 12000)));
   }
 
+  // Самый дальний зум, при котором кадр высотой H с центром на широте lat
+  // целиком лежит на карте: ни верх, ни низ не заходят за край Меркатора.
+  //
+  // Нужен, чтобы камера сама не доезжала до края. frameView умеет прижать
+  // кадр к краю, но это страховка, а не движение: на перелёте Россия →
+  // Таиланд прижатие включалось на пике отдаления, и кадр посреди прямого
+  // пути дёргался по вертикали.
+  function minZoomAt(lat, H) {
+    const y = project(lat, 0, 0)[1];                 // 0…256 на нулевом зуме
+    const f = Math.max(1e-3, Math.min(y, 256 - y) / 256);
+    return Math.log2(H / (2 * f * 256)) + 0.01;
+  }
+
+  // Центр, сдвинутый по вертикали так, чтобы кадр на зуме z не вылезал
+  // за край карты. Только для общего плана, где сдвиг неподвижен.
+  function clampCenter(c, z, H) {
+    const n = 256 * Math.pow(2, z);
+    const y = Math.min(Math.max(project(c.lat, c.lng, z)[1], H / 2), n - H / 2);
+    const lat = Math.atan(Math.sinh(Math.PI * (1 - 2 * y / n))) * 180 / Math.PI;
+    return L.latLng(lat, c.lng);
+  }
+
   // ---------------------------------------------------------------- таймлайн
   function buildPhases(W, H) {
     // Отступ считается от короткой стороны — иначе в вертикали общий план
     // прижимается к краям, а в горизонтали остаются лишние поля
     // Ближе FOLLOW_ZOOM не подходим и в общем плане: вся история в пределах
     // одного района иначе показывалась бы крупнее, чем сама анимация
-    const ovZ = Math.min(FOLLOW_ZOOM,
+    let ovZ = Math.min(FOLLOW_ZOOM,
       fitZoom(bounds.pad(0.15), W, H, Math.round(Math.min(W, H) * 0.08)));
-    const ovC = bounds.getCenter();
+    let ovC = bounds.getCenter();
+
+    // Широкая история в высоком кадре: при таком отдалении кадр выше карты.
+    // Лучше подъехать ближе — история станет крупнее и останется в центре.
+    // Не помещается и без полей — тогда отдаляемся, но сдвигаем центр.
+    const need = minZoomAt(ovC.lat, H);
+    if (need > ovZ) {
+      if (need <= Math.min(FOLLOW_ZOOM, fitZoom(bounds, W, H, 0))) {
+        ovZ = need;
+      } else {
+        ovZ = Math.max(ovZ, Math.log2(H / 256));
+        ovC = clampCenter(ovC, ovZ, H);
+      }
+    }
+    // Переходы между общим планом и слежением не отдаляются дальше,
+    // чем позволяет край карты на текущей широте
+    const fit = (c, z) => [c, Math.max(z, Math.min(FOLLOW_ZOOM, minZoomAt(c.lat, H)))];
     const phases = [];
     const arrivals = new Array(N).fill(Infinity);
     let acc = 0;
@@ -345,10 +383,10 @@ const WBPlayer = (() => {
       return Math.abs(px - cx) <= safeX && Math.abs(py - cy) <= safeY;
     };
 
-    push({ kind: 'hold', dur: 600, cam: () => [ovC, ovZ], aFloat: 0 });
+    push({ kind: 'hold', dur: 600, cam: () => fit(ovC, ovZ), aFloat: 0 });
     push({
       kind: 'step', i: 0, dur: 1200,
-      cam: t => [lerpLL(ovC, PTS[0], easeInOut(t)), lerp(ovZ, FOLLOW_ZOOM, easeInOut(t))]
+      cam: t => fit(lerpLL(ovC, PTS[0], easeInOut(t)), lerp(ovZ, FOLLOW_ZOOM, easeInOut(t)))
     });
     arrivals[0] = acc;
 
@@ -366,7 +404,16 @@ const WBPlayer = (() => {
       } else {
         // Точка вышла из зоны покоя — переезжаем и центрируемся на ней
         const from = camC;
-        const arc = far ? makeArc(from, to) : 0;
+        let arc = far ? makeArc(from, to) : 0;
+        // Дугу срезаем заранее, по всему пути: на каждой точке перелёта
+        // зум не должен опускаться ниже края карты для этой широты.
+        // Тогда кадр ни разу не упирается в край и путь остаётся прямым.
+        for (let k = 1; arc > 0 && k < 32; k++) {
+          const t = k / 32;
+          const lat = from.lat + (to.lat - from.lat) * easeInOut(t);
+          arc = Math.min(arc, (FOLLOW_ZOOM - minZoomAt(lat, H)) / Math.sin(Math.PI * t));
+        }
+        arc = Math.max(0, arc);
         push({
           kind: 'step', i, dur, far,
           cam: t => {
@@ -384,9 +431,9 @@ const WBPlayer = (() => {
     const fromFinale = camC;
     push({
       kind: 'finale', dur: 2000,
-      cam: t => [lerpLL(fromFinale, ovC, easeInOut(t)), lerp(FOLLOW_ZOOM, ovZ, easeInOut(t))]
+      cam: t => fit(lerpLL(fromFinale, ovC, easeInOut(t)), lerp(FOLLOW_ZOOM, ovZ, easeInOut(t)))
     });
-    push({ kind: 'hold', dur: 1400, cam: () => [ovC, ovZ], aFloat: N });
+    push({ kind: 'hold', dur: 1400, cam: () => fit(ovC, ovZ), aFloat: N });
     return { phases, arrivals, totalMs: acc };
   }
 
@@ -1826,5 +1873,22 @@ const WBPlayer = (() => {
     return { totalMs, at: t };
   }
 
-  return { start, renderFrameTo };
+  // Для проверок из site/_test: в скольких кадрах ролика frameView пришлось
+  // прижимать кадр к краю карты. Каждый такой кадр — сдвиг, которого нет
+  // в движении камеры; в норме их ноль.
+  function edgeClampFrames(W, H, fps = 60) {
+    const { phases, totalMs } = buildPhases(W, H);
+    const hits = [];
+    for (let f = 0; f * 1000 / fps <= totalMs; f++) {
+      const t = f * 1000 / fps, cam = stateAt(phases, t).cam;
+      const v = frameView(cam, W, H);
+      const free = project(cam[0].lat, cam[0].lng, v.z)[1] * v.scale - H / 2;
+      if (cam[1] < Math.log2(H / 256) || Math.abs(free - v.originY) > 0.5) {
+        hits.push({ t: Math.round(t), kind: stateAt(phases, t).kind || '' });
+      }
+    }
+    return { frames: Math.floor(totalMs / 1000 * fps), hits };
+  }
+
+  return { start, renderFrameTo, edgeClampFrames };
 })();
