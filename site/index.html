@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <title>WayBack — вся ваша спортивная история в одном видео</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="description" content="Загрузите архив экспорта из Strava, Garmin или Huawei — и получите анимированное видео всей истории ваших тренировок на карте. Всё работает в браузере: файлы не покидают ваш компьютер.">
+<meta name="description" content="Загрузите архив экспорта из Strava, Garmin, Huawei, Polar или Apple Watch — и получите анимированное видео всей истории ваших тренировок на карте. Всё работает в браузере: файлы не покидают ваш компьютер.">
 <meta property="og:title" content="WayBack — вся ваша спортивная история в одном видео">
 <meta property="og:description" content="Годы тренировок за одну минуту: тренировки появляются на карте в хронологическом порядке, камера летит следом. Скачайте результат видеофайлом.">
 <meta property="og:type" content="website">
@@ -51,8 +51,8 @@
                 stroke-width="3" fill="none" stroke-linecap="round"/>
         </svg>
         <div class="dz-title">Перетащите сюда архив экспорта</div>
-        <div class="dz-sub">ZIP-архив выгрузки из Strava, Garmin или Huawei —
-          целиком, как пришёл на почту</div>
+        <div class="dz-sub">ZIP-архив выгрузки из Strava, Garmin, Huawei, Polar
+          или Apple Watch — целиком, как пришёл</div>
         <button class="btn primary" id="pickBtn" type="button">Выбрать файлы</button>
         <input type="file" id="fileInput" multiple
                accept=".zip,.gpx,.fit,.tcx,.gz,.csv,.json" hidden>
@@ -74,8 +74,8 @@
           <div class="num">1</div>
           <h3>Экспортируйте архив</h3>
           <p>Запросите выгрузку данных в своём сервисе — точные шаги для
-          Strava, Garmin и Huawei описаны ниже, в разделе «Форматы».
-          Архив придёт письмом на почту.</p>
+          Strava, Garmin, Huawei, Polar и Apple Watch описаны ниже, в разделе
+          «Форматы». Обычно архив приходит письмом на почту.</p>
         </div>
         <div class="card">
           <div class="num">2</div>
@@ -101,6 +101,9 @@
         <div class="fmt"><b>Strava</b><span>bulk export: activities с .gpx.gz / .fit.gz / .tcx.gz + activities.csv</span></div>
         <div class="fmt"><b>Garmin</b><span>GDPR-архив с вложенными ZIP и FIT-файлами</span></div>
         <div class="fmt"><b>Huawei</b><span>выгрузка Privacy Center под паролем: motion path detail data.json</span></div>
+        <div class="fmt"><b>Polar</b><span>выгрузка Polar Flow: training-session-*.json с маршрутами</span></div>
+        <div class="fmt"><b>Apple Watch</b><span>экспорт «Здоровья» с iPhone: export.zip с папкой workout-routes</span></div>
+        <div class="fmt"><b>Другие часы</b><span>COROS, Suunto, Amazfit и другие — через выгрузку Strava, если часы с ней синхронизируются</span></div>
       </div>
       <details class="howto">
         <summary>Как запросить архив в Strava</summary>
@@ -140,7 +143,32 @@
           архиватором ничего не нужно.</p>
       </details>
 
-      <p class="howto-note">Во всех трёх случаях ссылка приходит письмом на
+      <details class="howto">
+        <summary>Как запросить архив в Polar</summary>
+        <p class="howto-where">Только на компьютере</p>
+        <p class="howto-path">Открыть <b>account.polar.com</b> → войти в аккаунт
+          Polar Flow → раздел с данными аккаунта → <b>экспорт данных</b></p>
+        <p class="howto-wait">Ожидание: до пары дней</p>
+        <p>Придёт ZIP, в котором каждая тренировка лежит отдельным файлом
+          training-session. Загружайте архив целиком — тренировки без GPS,
+          например в зале, WayBack пропустит сам.</p>
+      </details>
+
+      <details class="howto">
+        <summary>Как выгрузить тренировки Apple Watch</summary>
+        <p class="howto-where">Только на iPhone, в приложении «Здоровье»</p>
+        <p class="howto-path">«Здоровье» → нажать на свой аватар справа вверху →
+          <b>Экспортировать все медданные</b> → Экспортировать</p>
+        <p class="howto-wait">Ожидание: несколько минут, письма не будет</p>
+        <p>Получится файл <b>export.zip</b>: сохраните его в «Файлы» или
+          перешлите на компьютер. Загружайте целиком — WayBack возьмёт из него
+          только маршруты тренировок. Архив бывает большим, это нормально.</p>
+        <p>Apple не записывает в маршрут вид спорта, поэтому тренировки попадут
+          в группу «Другое». Тренировок без GPS, например на дорожке, в архиве
+          маршрутов нет.</p>
+      </details>
+
+      <p class="howto-note">Strava, Garmin, Huawei и Polar присылают ссылку письмом на
         почту аккаунта. Проверьте папку «Спам» — такие письма часто попадают
         туда.</p>
     </div>

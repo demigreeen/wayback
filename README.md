@@ -23,7 +23,7 @@ python -m http.server 8123 --directory site
 Открыть `http://localhost:8123`. Кнопка «Посмотреть демо» строит
 синтетическую историю из 84 тренировок — реальный архив не нужен.
 
-Тестовые архивы (Strava, Garmin, Huawei, одиночный GPX):
+Тестовые архивы (Strava, Garmin, Huawei, Polar, Apple Health, одиночный GPX):
 
 ```bash
 python tools/make_testdata.py
@@ -42,6 +42,8 @@ python tools/make_testdata.py
 | Strava | bulk export: `activities/*.gpx.gz`, `*.fit.gz`, `*.tcx.gz` + `activities.csv` |
 | Garmin | GDPR-архив с вложенными ZIP и FIT-файлами |
 | Huawei | выгрузка Privacy Center: `motion path detail data.json` |
+| Polar | выгрузка account.polar.com: `training-session-*.json` |
+| Apple Watch | экспорт «Здоровья»: `workout-routes/*.gpx`, `export.xml` пропускается |
 
 Формат определяется по сигнатуре файла, а не по расширению. Вложенные
 архивы и gzip разбираются рекурсивно, дубликаты отсеиваются.
@@ -54,7 +56,7 @@ python tools/make_testdata.py
 site/                  сайт (публикуется на GitHub Pages)
   index.html           лендинг + разметка плеера
   css/app.css          белая тема лендинга, тёмная — плеера
-  js/parse.js          разбор: ZIP, GZ, GPX, TCX, FIT, CSV, Huawei
+  js/parse.js          разбор: ZIP, GZ, GPX, TCX, FIT, CSV, Huawei, Polar
   js/player.js         движок анимации, ориентации, подписи, экспорт
   js/vectormap.js      свой рендер карты из векторных тайлов OSM
   js/cities.js         города GeoNames для подписей (генерируется)

@@ -10,6 +10,9 @@
    - FIT — собственный бинарный парсер (только нужные сообщения: record / session / file_id)
    - activities.csv из Strava как индекс имён/типов
    - Huawei Health — motion path detail data.json (внутри формат HiTrack)
+   - Polar — training-session-*.json с маршрутом внутри
+   - Apple Health — отдельного разбора нет: маршруты лежат обычными GPX
+     в workout-routes/, а огромный export.xml отсекается по имени
 
    Формат результата:
    { acts: [{ts, date, name, place, type, km, lat, lon}], skipped, types: Map, locked }
@@ -171,6 +174,9 @@ const WBParse = (() => {
       const mn = RE_NAME.exec(info); if (mn) name = mn[1].trim();
       const mp = RE_TYPE.exec(info); if (mp) type = mp[1].trim();
     }
+    // Apple Health вместо названия пишет «Route 2024-03-05 7:15am» —
+    // дата в подписи уже есть, дублировать её незачем
+    if (name && /^Route \d{4}-\d\d-\d\d\b/.test(name)) name = null;
     return { pts, ts, name, type };
   }
 
@@ -521,6 +527,59 @@ const WBParse = (() => {
     return out.length ? out : null;
   }
 
+  // ------------------------------------------------------------ Polar
+  // Выгрузка с account.polar.com: по файлу training-session-*.json на каждую
+  // тренировку. Внутри список exercises — у мультиспорта их несколько.
+  // Формат менялся, маршрут встречается в двух видах:
+  //   старый — samples.recordedRoute: [{dateTime, latitude, longitude}]
+  //   новый  — routes.route.wayPoints: [{elapsedMillis, latitude, longitude}]
+  // Время в файле местное, без зоны: Date.parse так его и прочтёт.
+  // Живой выгрузки в руках не было — разбор собран по описаниям
+  // конвертеров, коды видов спорта тоже (проверены только 1 и 2).
+  const POLAR_SPORT = { 1: 'run', 2: 'ride' };
+
+  function polarRoute(ex) {
+    const s = ex.samples, r = ex.routes;
+    const list = (s && Array.isArray(s.recordedRoute) && s.recordedRoute) ||
+                 (r && r.route && Array.isArray(r.route.wayPoints) && r.route.wayPoints) ||
+                 (r && Array.isArray(r.wayPoints) && r.wayPoints) || [];
+    const pts = [];
+    for (const p of list) {
+      if (!p) continue;
+      const lat = Number(p.latitude), lon = Number(p.longitude);
+      if (!isFinite(lat) || !isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) continue;
+      if (lat === 0 && lon === 0) continue;
+      pts.push([lat, lon]);
+    }
+    return { pts, first: list.length && list[0] ? list[0].dateTime : null };
+  }
+
+  function parsePolar(text) {
+    let data;
+    try { data = JSON.parse(text); } catch (e) { return null; }
+    if (!data || !Array.isArray(data.exercises)) return null;
+    const out = [];
+    for (const ex of data.exercises) {
+      if (!ex || typeof ex !== 'object') continue;
+      const { pts, first } = polarRoute(ex);
+      if (pts.length < 2) continue;
+      const t = Date.parse(ex.startTime || first || data.startTime || '');
+      const sp = ex.sport;
+      const type = typeof sp === 'string' ? sp
+                 : sp && typeof sp === 'object' ? (POLAR_SPORT[sp.id] || null)
+                 : null;
+      const dist = Number(ex.distance || (data.exercises.length === 1 && data.distance));
+      out.push({
+        pts,
+        ts: isFinite(t) ? t : null,
+        name: null,
+        type,
+        distM: isFinite(dist) && dist > 0 ? dist : null
+      });
+    }
+    return out.length ? out : null;
+  }
+
   // ------------------------------------------------------------ сводка Garmin
   // summarizedActivities.json — список всех тренировок аккаунта. Треков в нём
   // нет, зато есть название и locationName: «Москва», «Одинцовский район».
@@ -562,7 +621,7 @@ const WBParse = (() => {
   // Из архива вынимаем только то, что может оказаться тренировкой. JSON берём
   // выборочно: в Garmin-выгрузке их сотни, и разбирать их все бессмысленно.
   const INTERESTING =
-    /\.(zip|gpx|tcx|fit|gz)$|activit[^/]*\.csv$|motion[ _-]?path[^/]*\.json$|hitrack|summarizedActivities[^/]*\.json$/i;
+    /\.(zip|gpx|tcx|fit|gz)$|activit[^/]*\.csv$|motion[ _-]?path[^/]*\.json$|hitrack|summarizedActivities[^/]*\.json$|training-session[^/]*\.json$/i;
 
   // ZIP читается через центральный каталог, а не потоком.
   //
@@ -914,6 +973,11 @@ const WBParse = (() => {
         } else if (kind === 'json') {
           if (/summarizedActivities/i.test(name)) {
             if (!garminIndex) garminIndex = parseGarminSummary(decoder.decode(u8));
+          } else if (/training-session/i.test(name)) {
+            // Сессия Polar без маршрута — тренировка в зале или на дорожке,
+            // а не потерянный трек. Молча мимо, как FIT без точек.
+            const list = parsePolar(decoder.decode(u8));
+            if (list) for (const a of list) addTrack(a, base);
           } else {
             const list = parseHuawei(decoder.decode(u8));
             if (list) for (const a of list) addTrack(a, base);

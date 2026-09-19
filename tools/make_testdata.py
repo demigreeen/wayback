@@ -7,6 +7,8 @@
   huawei_export.zip  — motion path detail data.json в формате HiTrack
   huawei_aes.zip     — то же под паролем WinZip AES, как присылает Huawei
                        (нужен 7-Zip; без него фикстура пропускается)
+  apple_export.zip   — выгрузка «Здоровья»: workout-routes/*.gpx + export.xml
+  polar_export.zip   — training-session-*.json в старом и новом формате
   plain.gpx          — одиночный файл
   strava_big.zip     — 300 тренировок как в живой выгрузке (только с --big):
                        на мелких фикстурах не видна цена обращений к файлу
@@ -190,6 +192,49 @@ def make_huawei(activities) -> bytes:
     return json.dumps(out, ensure_ascii=False).encode("utf-8")
 
 
+# ----------------------------------------------------------------- Apple Health
+def make_apple_gpx(pts, start: datetime) -> bytes:
+    """Маршрут из workout-routes/ выгрузки «Здоровья».
+
+    Отличия от Strava намеренные: lon идёт раньше lat, вида спорта в файле
+    нет, в расширениях скорость и курс вместо пульса.
+    """
+    rows = []
+    for i, (lat, lon) in enumerate(pts):
+        t = (start + timedelta(seconds=i * 3)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        rows.append(f'<trkpt lon="{lon:.6f}" lat="{lat:.6f}"><ele>35.1</ele>'
+                    f"<time>{t}</time><extensions><speed>2.9</speed>"
+                    f"<course>87.3</course><hAcc>3.1</hAcc><vAcc>2.0</vAcc>"
+                    f"</extensions></trkpt>")
+    return ('<?xml version="1.0" encoding="UTF-8"?>\n'
+            '<gpx version="1.1" creator="Apple Health Export" '
+            'xmlns="http://www.topografix.com/GPX/1/1">\n'
+            f"<metadata><time>{start:%Y-%m-%dT%H:%M:%SZ}</time></metadata>\n"
+            f"<trk><name>Route {start:%Y-%m-%d %I:%M%p}</name><trkseg>\n"
+            + "\n".join(rows) + "\n</trkseg></trk>\n</gpx>\n").encode("utf-8")
+
+
+# ----------------------------------------------------------------- Polar
+def make_polar_session(pts, start: datetime, new_format: bool) -> bytes:
+    """training-session-*.json с account.polar.com, в двух вариантах формата."""
+    local = start.strftime("%Y-%m-%dT%H:%M:%S.000")
+    if new_format:
+        ex = {"startTime": local, "distance": 8000.0, "sport": {"id": "1"},
+              "routes": {"route": {"startTime": local, "wayPoints": [
+                  {"elapsedMillis": k * 3000, "latitude": lat, "longitude": lon,
+                   "altitude": 40.0} for k, (lat, lon) in enumerate(pts)]}}}
+    else:
+        ex = {"startTime": local, "distance": 8000.0, "sport": "RUNNING",
+              "samples": {"heartRate": [{"dateTime": local, "value": 120}],
+                          "recordedRoute": [
+                  {"dateTime": (start + timedelta(seconds=k * 3))
+                      .strftime("%Y-%m-%dT%H:%M:%S.000"),
+                   "latitude": lat, "longitude": lon, "altitude": 40.0}
+                  for k, (lat, lon) in enumerate(pts)]}}
+    return json.dumps({"exportVersion": "1.6", "startTime": local,
+                       "distance": 8000.0, "exercises": [ex]}).encode("utf-8")
+
+
 # Пароль фикстуры. Тот же указан в verify.html — если менять, то в обоих местах.
 HUAWEI_AES_PW = "wayback-test"
 
@@ -297,6 +342,40 @@ def build():
     # ---------- Huawei под паролем ----------
     if not make_huawei_aes(payload, OUT / "huawei_aes.zip"):
         print("huawei_aes.zip пропущен: не найден 7-Zip")
+
+    # ---------- Apple Health ----------
+    ap = io.BytesIO()
+    day = datetime(2024, 3, 2, 7, 15, tzinfo=timezone.utc)
+    with zipfile.ZipFile(ap, "w", zipfile.ZIP_DEFLATED) as z:
+        # export.xml в живой выгрузке весит до гигабайта — разбирать его
+        # нельзя, парсер обязан пропустить его по имени
+        z.writestr("apple_health_export/export.xml",
+                   '<?xml version="1.0"?><HealthData><Record type="steps"/></HealthData>')
+        z.writestr("apple_health_export/export_cda.xml", "<ClinicalDocument/>")
+        for i in range(6):
+            day += timedelta(days=3)
+            pts = loop(LYON[0] - i * 0.003, LYON[1] + i * 0.004, n=120, phase=i * 0.9)
+            z.writestr(f"apple_health_export/workout-routes/"
+                       f"route_{day:%Y-%m-%d_%I.%M%p}.gpx".lower(),
+                       make_apple_gpx(pts, day))
+    (OUT / "apple_export.zip").write_bytes(ap.getvalue())
+
+    # ---------- Polar ----------
+    pl = io.BytesIO()
+    day = datetime(2020, 8, 10, 18, 0, tzinfo=timezone.utc)
+    with zipfile.ZipFile(pl, "w", zipfile.ZIP_DEFLATED) as z:
+        for i in range(6):
+            day += timedelta(days=4)
+            pts = loop(BARCELONA[0] + i * 0.002, BARCELONA[1] + i * 0.003, n=100, phase=i)
+            z.writestr(f"polar-user-data-export/training-session-"
+                       f"{day:%Y-%m-%d}-{5000000 + i}.json",
+                       make_polar_session(pts, day, new_format=i >= 3))
+        # Сессия в зале без маршрута и служебные файлы — должны тихо пропасть
+        z.writestr("polar-user-data-export/training-session-2020-09-30-5999999.json",
+                   json.dumps({"exercises": [{"sport": "STRENGTH_TRAINING"}]}))
+        z.writestr("polar-user-data-export/account-data-1.json", '{"username":"x"}')
+        z.writestr("polar-user-data-export/activity-2020-08-11-1.json", '{"samples":[]}')
+    (OUT / "polar_export.zip").write_bytes(pl.getvalue())
 
     # ---------- одиночный GPX ----------
     (OUT / "plain.gpx").write_bytes(
