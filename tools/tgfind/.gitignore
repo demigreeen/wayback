@@ -8,3 +8,6 @@ state.json
 state.tmp
 results.csv
 links.txt
+links.html
+links_*.html
+links_*.txt

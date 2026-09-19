@@ -301,6 +301,83 @@ class Finder:
                 self.usernames = []
 
 
+LINKS_HTML = """<!doctype html>
+<html lang="ru"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Чаты Telegram</title>
+<style>
+:root { --bg:#fff; --fg:#1a1d24; --dim:#6b7280; --line:#e5e7eb; --link:#2563eb; --done:#9ca3af; }
+@media (prefers-color-scheme: dark) {
+  :root { --bg:#16181d; --fg:#e8eaee; --dim:#9aa1ad; --line:#2a2e36; --link:#6ea8ff; --done:#5b6270; }
+}
+body { margin:0; background:var(--bg); color:var(--fg);
+       font:15px/1.45 "Segoe UI", system-ui, sans-serif; }
+main { max-width:860px; margin:0 auto; padding:24px 16px 48px; }
+h1 { font-size:22px; margin:0 0 4px; }
+.sub { color:var(--dim); margin:0 0 16px; }
+input[type=search] { width:100%; box-sizing:border-box; padding:10px 12px; font:inherit;
+       color:inherit; background:transparent; border:1px solid var(--line); border-radius:8px; }
+ol { padding-left:0; list-style:none; margin:16px 0 0; }
+li { display:flex; gap:12px; align-items:baseline; padding:9px 2px; border-bottom:1px solid var(--line); }
+li input { flex:none; transform:translateY(2px); }
+.n { flex:none; width:34px; color:var(--dim); text-align:right; font-variant-numeric:tabular-nums; }
+.t { flex:1; min-width:0; }
+.t a { color:var(--link); text-decoration:none; font-weight:600; overflow-wrap:anywhere; }
+.t a:hover { text-decoration:underline; }
+.m { color:var(--dim); font-size:13px; }
+.c { flex:none; color:var(--dim); font-variant-numeric:tabular-nums; }
+li.done .t a, li.done .c { color:var(--done); text-decoration:line-through; }
+</style></head><body><main>
+<h1>Чаты Telegram</h1>
+<p class="sub">__COUNT__ · галочка «написал» запоминается в этом браузере</p>
+<input type="search" id="q" placeholder="Найти по названию или ссылке">
+<ol id="list">
+__ROWS__
+</ol>
+</main>
+<script>
+const KEY = 'tgfind-done';
+let done = {};
+try { done = JSON.parse(localStorage.getItem(KEY) || '{}'); } catch (e) {}
+for (const li of document.querySelectorAll('li')) {
+  const box = li.querySelector('input'), id = li.dataset.id;
+  box.checked = !!done[id]; li.classList.toggle('done', box.checked);
+  box.addEventListener('change', () => {
+    li.classList.toggle('done', box.checked);
+    if (box.checked) done[id] = 1; else delete done[id];
+    try { localStorage.setItem(KEY, JSON.stringify(done)); } catch (e) {}
+  });
+}
+document.getElementById('q').addEventListener('input', e => {
+  const q = e.target.value.trim().toLowerCase();
+  for (const li of document.querySelectorAll('li'))
+    li.hidden = q && !li.textContent.toLowerCase().includes(q);
+});
+</script></body></html>
+"""
+
+
+def write_html(rows: list[dict], name: str = "links.html", heading: str = "Чаты Telegram") -> None:
+    """links.html — те же чаты кликабельным списком для браузера."""
+    from html import escape
+    items = []
+    for i, r in enumerate(rows, 1):
+        link = escape(r["link"], quote=True)
+        members = f"{int(r['members']):,}".replace(",", " ")   # 15 069
+        items.append(
+            f'<li data-id="{link}"><input type="checkbox" title="написал">'
+            f'<span class="n">{i}</span>'
+            f'<span class="t"><a href="{link}" target="_blank" rel="noopener">'
+            f'{escape(r["title"] or r["link"])}</a><br>'
+            f'<span class="m">{escape(r["link"].replace("https://", ""))} · {escape(r["match"])}</span></span>'
+            f'<span class="c">{members}</span></li>')
+    page = (LINKS_HTML.replace("<title>Чаты Telegram</title>", f"<title>{escape(heading)}</title>")
+                      .replace("<h1>Чаты Telegram</h1>", f"<h1>{escape(heading)}</h1>")
+                      .replace("__COUNT__", f"{len(rows)} чатов")
+                      .replace("__ROWS__", "\n".join(items)))
+    (HERE / name).write_text(page, encoding="utf-8")
+
+
 def write_results(state: dict, min_members: int) -> int:
     # Только чаты: каналы нужны лишь как путь к их чатам обсуждения
     rows = [r for r in state["chats"].values()
@@ -314,6 +391,7 @@ def write_results(state: dict, min_members: int) -> int:
         for r in rows:
             w.writerow([r["link"], r["title"], r["kind"], r["members"], r["match"], r["about"][:300]])
     (HERE / "links.txt").write_text("\n".join(r["link"] for r in rows) + "\n", encoding="utf-8")
+    write_html(rows)
     return len(rows)
 
 
