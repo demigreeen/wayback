@@ -292,10 +292,50 @@ class App:
         self.root.after(300, self.root.destroy)
 
 
+EDITABLE = ("Text", "Entry", "TEntry", "TSpinbox")
+
+# Физические коды клавиш Windows → действие. Tkinter узнаёт Ctrl+V по букве,
+# а при русской раскладке буква — «м»: вставка, копирование и прочее молча
+# не срабатывают. Код клавиши от раскладки не зависит.
+HOTKEYS = {86: "<<Paste>>", 67: "<<Copy>>", 88: "<<Cut>>", 65: "<<SelectAll>>", 90: "<<Undo>>"}
+
+
+def on_ctrl_key(e):
+    if e.keysym.lower() in ("v", "c", "x", "a", "z"):
+        return None                            # латиница — сработает штатная привязка
+    action = HOTKEYS.get(e.keycode)
+    if action:
+        e.widget.event_generate(action)
+        return "break"
+    return None
+
+
+def fix_hotkeys(root):
+    menu = tk.Menu(root, tearoff=False)
+
+    def on_right_click(e):
+        w = e.widget
+        w.focus_set()
+        menu.delete(0, "end")
+        for label, action in (("Вырезать", "<<Cut>>"), ("Копировать", "<<Copy>>"),
+                              ("Вставить", "<<Paste>>"), (None, None),
+                              ("Выделить всё", "<<SelectAll>>")):
+            if label is None:
+                menu.add_separator()
+            else:
+                menu.add_command(label=label, command=lambda a=action: w.event_generate(a))
+        menu.tk_popup(e.x_root, e.y_root)
+
+    for cls in EDITABLE:
+        root.bind_class(cls, "<Control-KeyPress>", on_ctrl_key, add="+")
+        root.bind_class(cls, "<Button-3>", on_right_click, add="+")
+
+
 def main():
     root = tk.Tk()
     with contextlib.suppress(tk.TclError):
         ttk.Style().theme_use("vista")
+    fix_hotkeys(root)
     App(root)
     root.mainloop()
 
