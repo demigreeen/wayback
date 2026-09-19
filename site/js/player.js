@@ -1876,18 +1876,24 @@ const WBPlayer = (() => {
   // Для проверок из site/_test: в скольких кадрах ролика frameView пришлось
   // прижимать кадр к краю карты. Каждый такой кадр — сдвиг, которого нет
   // в движении камеры; в норме их ноль.
+  // track — покадрово: зум и где голова на экране (для разбора рывков)
   function edgeClampFrames(W, H, fps = 60) {
     const { phases, totalMs } = buildPhases(W, H);
-    const hits = [];
+    const hits = [], track = [];
     for (let f = 0; f * 1000 / fps <= totalMs; f++) {
-      const t = f * 1000 / fps, cam = stateAt(phases, t).cam;
+      const t = f * 1000 / fps, st = stateAt(phases, t), cam = st.cam;
       const v = frameView(cam, W, H);
       const free = project(cam[0].lat, cam[0].lng, v.z)[1] * v.scale - H / 2;
       if (cam[1] < Math.log2(H / 256) || Math.abs(free - v.originY) > 0.5) {
-        hits.push({ t: Math.round(t), kind: stateAt(phases, t).kind || '' });
+        hits.push({ t: Math.round(t), kind: st.kind || '' });
+      }
+      if (st.head) {
+        const [hx, hy] = project(st.head.lat, st.head.lng, v.z);
+        track.push({ t: Math.round(t), z: +cam[1].toFixed(2), zView: +(v.z + Math.log2(v.scale)).toFixed(2),
+                     hx: Math.round(hx * v.scale - v.originX), hy: Math.round(hy * v.scale - v.originY) });
       }
     }
-    return { frames: Math.floor(totalMs / 1000 * fps), hits };
+    return { frames: Math.floor(totalMs / 1000 * fps), hits, track };
   }
 
   return { start, renderFrameTo, edgeClampFrames };
