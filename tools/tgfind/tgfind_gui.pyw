@@ -22,8 +22,6 @@ from tkinter.scrolledtext import ScrolledText
 
 import tgfind
 
-ONLY = {"Чаты и каналы": None, "Только чаты": "чат", "Только каналы": "канал"}
-
 
 class LogWriter:
     """stdout рабочего потока → очередь → журнал в окне."""
@@ -101,15 +99,15 @@ class App:
         opts.pack(fill="x", **pad)
         self.threshold = tk.IntVar(value=5)
         self.min_members = tk.IntVar(value=20)
-        self.only = tk.StringVar(value="Чаты и каналы")
         ttk.Label(opts, text="Слова в сообщениях больше").pack(side="left")
         ttk.Spinbox(opts, from_=0, to=1000, width=5, textvariable=self.threshold).pack(side="left", padx=4)
         ttk.Label(opts, text="раз").pack(side="left", padx=(0, 16))
         ttk.Label(opts, text="Участников не меньше").pack(side="left")
         ttk.Spinbox(opts, from_=0, to=1000000, increment=10, width=7,
                     textvariable=self.min_members).pack(side="left", padx=(4, 16))
-        ttk.Combobox(opts, values=list(ONLY), textvariable=self.only, state="readonly",
-                     width=16).pack(side="left")
+        ttk.Label(opts, foreground="#666",
+                  text="В список идут только чаты. Каналы — лишь путь к их чатам обсуждения."
+                  ).pack(side="left")
 
         # ---------- кнопки
         btns = ttk.Frame(root)
@@ -172,7 +170,7 @@ class App:
         (tgfind.HERE / "queries.txt").write_text("\n".join(queries) + "\n", encoding="utf-8")
         (tgfind.HERE / "keywords.txt").write_text("\n".join(keywords) + "\n", encoding="utf-8")
         return dict(queries=queries, kw_words=keywords, cfg=cfg, threshold=threshold,
-                    min_members=min_members, only=ONLY[self.only.get()])
+                    min_members=min_members)
 
     # ------------------------------------------------ вопросы из рабочего потока
     def ask(self, prompt, secret=False):
@@ -206,7 +204,7 @@ class App:
             return await tgfind.run(
                 params["queries"], params["kw_words"], params["cfg"],
                 threshold=params["threshold"], min_members=params["min_members"],
-                only=params["only"], phone=params["cfg"]["phone"] or None,
+                phone=params["cfg"]["phone"] or None,
                 code_callback=lambda: self.ask("Код из Telegram:"),
                 password=lambda: self.ask("Пароль двухэтапной проверки:", secret=True))
 

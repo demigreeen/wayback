@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""tgfind — поиск публичных чатов и каналов Telegram по ключевым словам.
+"""tgfind — поиск публичных чатов Telegram по ключевым словам.
 
 Что делает:
   1. Ищет по каждому запросу из queries.txt — как поиск в самом Telegram.
@@ -75,10 +75,21 @@ def get_config() -> dict:
     return cfg
 
 
+STATE_VERSION = 2
+
+
 def load_state() -> dict:
-    if STATE.exists():
-        return json.loads(STATE.read_text(encoding="utf-8"))
-    return {"done_queries": [], "chats": {}, "resolved": []}
+    if not STATE.exists():
+        return {"version": STATE_VERSION, "done_queries": [], "chats": {}, "resolved": []}
+    state = json.loads(STATE.read_text(encoding="utf-8"))
+    if state.get("version", 1) < 2:
+        # Версия 1 сохраняла каналы как результат и не искала их чаты.
+        # Каналы забываем, запросы повторяем — каналы найдутся снова и на этот
+        # раз приведут к своим чатам. Проверенные чаты остаются: их не трогаем.
+        state["chats"] = {k: v for k, v in state["chats"].items() if v.get("kind") != "канал"}
+        state["done_queries"] = []
+        state["version"] = STATE_VERSION
+    return state
 
 
 def save_state(state: dict) -> None:
@@ -117,6 +128,9 @@ class Finder:
         # Telegram советует похожим на самого себя, проверялся бы дважды.
         self.seen = set(state["chats"])
         self.usernames = []      # найденные в описаниях, ещё не открытые
+        self.via = {}            # id чата обсуждения -> имя канала, через который найден
+        self.links_found = 0     # чатов, найденных через каналы
+        self.private_linked = 0  # у подходящих каналов чат обсуждения закрытый
 
     async def call(self, request):
         """Запрос с переждать-и-повторить на FloodWait."""
@@ -181,6 +195,7 @@ class Finder:
         members = full.full_chat.participants_count or 0
         kind = "канал" if ent.broadcast else "чат"
         name = public_name(ent)
+        key = str(ent.id)
 
         # Ссылки из описания — источник новых чатов: клубы ссылаются друг на друга
         for u in USERNAME_RE.findall(about):
@@ -188,21 +203,23 @@ class Finder:
                 self.usernames.append(u)
 
         reasons = []
+        if key in self.via:
+            reasons.append(f"чат канала @{self.via[key]}")
         if self.kw_re.search(ent.title or ""):
             reasons.append("название")
         if self.kw_re.search(about):
             reasons.append("описание")
-        if not reasons and members >= self.min_members:
+
+        if ent.broadcast:
+            # Канал — не цель, а мост. Подходит он только по названию или
+            # описанию: по счёту сообщений у большого канала «бег» найдётся
+            # всегда, и через «похожие каналы» поиск уползал в случайные.
+            if reasons:
+                await self.bridge(ent, full, name)
+        elif not reasons and members >= self.min_members:
             count = await self.count_messages(ent)
             if count > self.threshold:
                 reasons.append(f"сообщения ({count})")
-
-        # «Похожие каналы» Telegram выдаёт только для каналов
-        if reasons and ent.broadcast:
-            rec = await self.call(functions.channels.GetChannelRecommendationsRequest(channel=ent))
-            if rec:
-                for ch in rec.chats:
-                    self.add(ch)
 
         return {
             "link": f"https://t.me/{name}",
@@ -212,6 +229,25 @@ class Finder:
             "match": ", ".join(reasons),
             "about": about.replace("\n", " ").strip(),
         }
+
+    async def bridge(self, ent, full, name):
+        """Подходящий канал: его чат обсуждения — в очередь, похожие каналы —
+        тоже, но им самим снова придётся пройти по названию или описанию."""
+        lid = getattr(full.full_chat, "linked_chat_id", None)
+        if lid:
+            linked = next((c for c in full.chats if c.id == lid), None)
+            if linked is not None and public_name(linked):
+                self.via.setdefault(str(linked.id), name)
+                self.add(linked)
+                self.links_found += 1
+            else:
+                # Закрытый чат обсуждения: ссылки нет, писать можно только
+                # в комментариях под постами канала
+                self.private_linked += 1
+        rec = await self.call(functions.channels.GetChannelRecommendationsRequest(channel=ent))
+        if rec:
+            for ch in rec.chats:
+                self.add(ch)
 
     async def resolve_usernames(self):
         seen = set(self.state["resolved"])
@@ -241,27 +277,35 @@ class Finder:
     async def process_queue(self):
         while self.queue or self.usernames:
             while self.queue:
-                key, ent = self.queue.popitem()
+                # По порядку поступления, а не с конца: иначе «похожие» только
+                # что проверенного канала шли первыми и поиск уходил вглубь,
+                # не закончив с найденным по запросам
+                key = next(iter(self.queue))
+                ent = self.queue.pop(key)
                 row = await self.check(ent)
                 if row is None:
                     continue
                 self.state["chats"][key] = row
                 save_state(self.state)
-                mark = "+" if row["match"] else " "
-                print(f" {mark} {row['kind']:5} {row['members']:>7}  {row['link']}  {row['title'][:50]}"
-                      + (f"  [{row['match']}]" if row["match"] else ""))
+                if row["kind"] == "канал":
+                    # Канал в список не идёт — в журнале видно, зачем он был
+                    if row["match"]:
+                        print(f"   канал {row['members']:>7}  {row['link']}  {row['title'][:50]}  → ищем его чат")
+                else:
+                    mark = "+" if row["match"] else " "
+                    print(f" {mark} чат   {row['members']:>7}  {row['link']}  {row['title'][:50]}"
+                          + (f"  [{row['match']}]" if row["match"] else ""))
                 await pause()
             await self.resolve_usernames()
             if self.resolve_left <= 0:
                 self.usernames = []
 
 
-def write_results(state: dict, only: str | None, min_members: int) -> int:
-    rows = [r for r in state["chats"].values() if r["match"] and r["members"] >= min_members]
-    if only:
-        rows = [r for r in rows if r["kind"] == only]
-    # Сначала чаты, потом каналы; внутри — по числу участников
-    rows.sort(key=lambda r: (r["kind"] != "чат", -r["members"]))
+def write_results(state: dict, min_members: int) -> int:
+    # Только чаты: каналы нужны лишь как путь к их чатам обсуждения
+    rows = [r for r in state["chats"].values()
+            if r["match"] and r["kind"] == "чат" and r["members"] >= min_members]
+    rows.sort(key=lambda r: -r["members"])
 
     # utf-8-sig и точка с запятой — чтобы русский Excel открыл без мастера импорта
     with open(HERE / "results.csv", "w", newline="", encoding="utf-8-sig") as f:
@@ -273,7 +317,7 @@ def write_results(state: dict, only: str | None, min_members: int) -> int:
     return len(rows)
 
 
-async def run(queries, kw_words, cfg, threshold=5, min_members=20, only=None,
+async def run(queries, kw_words, cfg, threshold=5, min_members=20,
               max_resolve=60, phone=None, code_callback=None, password=None) -> int:
     """Один полный проход поиска. Общий для командной строки и окна.
 
@@ -291,11 +335,14 @@ async def run(queries, kw_words, cfg, threshold=5, min_members=20, only=None,
         await finder.search(queries)
         print(f"\nПроверяем чаты: {len(finder.queue)}. «+» — подходит.\n")
         await finder.process_queue()
+        print(f"\nЧерез каналы найдено чатов: {finder.links_found}. "
+              f"У подходящих каналов закрытых чатов обсуждения: {finder.private_linked} "
+              f"(в них пишут только в комментариях под постами).")
     except (KeyboardInterrupt, asyncio.CancelledError):
         print("\nОстановлено. Прогресс сохранён — следующий запуск продолжит.")
     finally:
         save_state(state)
-        n = write_results(state, only, min_members)
+        n = write_results(state, min_members)
         print(f"\nПодходящих: {n}. Список — results.csv (Excel) и links.txt")
         await client.disconnect()
     return n
@@ -311,7 +358,6 @@ async def main():
                     help="сколько сообщений со словами должно быть БОЛЬШЕ (по умолчанию 5)")
     ap.add_argument("--min-members", type=int, default=20,
                     help="меньше участников — в список не попадает (по умолчанию 20)")
-    ap.add_argument("--only", choices=["чат", "канал"], help="оставить только чаты или только каналы")
     ap.add_argument("--max-resolve", type=int, default=60,
                     help="сколько ссылок из описаний открывать за запуск (по умолчанию 60)")
     ap.add_argument("--export-only", action="store_true",
@@ -319,7 +365,7 @@ async def main():
     args = ap.parse_args()
 
     if args.export_only:
-        n = write_results(load_state(), args.only, args.min_members)
+        n = write_results(load_state(), args.min_members)
         print(f"Готово: {n} в results.csv и links.txt")
         return
 
@@ -329,7 +375,7 @@ async def main():
         sys.exit("queries.txt и keywords.txt не должны быть пустыми")
 
     await run(queries, kw_words, get_config(), args.threshold, args.min_members,
-              args.only, args.max_resolve)
+              args.max_resolve)
 
 
 if __name__ == "__main__":
