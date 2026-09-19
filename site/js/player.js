@@ -444,15 +444,15 @@ const WBPlayer = (() => {
       if (untilMs !== undefined && ph.t0 > untilMs) break;
       const samples = Math.max(6, Math.ceil(ph.dur / 150));
       for (let s = 0; s <= samples; s++) {
-        const [c, zf] = ph.cam(s / samples);
-        const z = Math.round(zf);
-        const [cx, cy] = project(c.lat, c.lng, z);
-        const n = Math.pow(2, z);
-        const x0 = Math.floor((cx - W / 2) / 256) - 1, x1 = Math.floor((cx + W / 2) / 256) + 1;
-        const y0 = Math.floor((cy - H / 2) / 256) - 1, y1 = Math.floor((cy + H / 2) / 256) + 1;
-        for (let x = x0; x <= x1; x++)
-          for (let y = y0; y <= y1; y++)
-            if (x >= 0 && y >= 0 && x < n && y < n) keys.add(z + '/' + x + '/' + y);
+        // Тот же расчёт кадра, что в drawFrame: иначе на дробном зуме
+        // и у края карты грузилось бы не то, что потом рисуется
+        const { z, n, ts, originX, originY } = frameView(ph.cam(s / samples), W, H);
+        const x0 = Math.floor(originX / ts) - 1, x1 = Math.floor((originX + W) / ts) + 1;
+        const y0 = Math.max(0, Math.floor(originY / ts) - 1);
+        const y1 = Math.min(n - 1, Math.floor((originY + H) / ts) + 1);
+        // На самых мелких зумах кадр шире мира — один тайл не грузим дважды
+        for (let x = x0; x <= Math.min(x1, x0 + n - 1); x++)
+          for (let y = y0; y <= y1; y++) keys.add(z + '/' + wrapX(x, n) + '/' + y);
       }
     }
     return [...keys];
@@ -557,24 +557,47 @@ const WBPlayer = (() => {
   // ---------------------------------------------------------------- кадр
   // geo — масштаб геометрии следа. Приходит снаружи, потому что у превью и
   // у видео он разный: см. STROKE_VIDEO.
-  function drawFrame(ctx, W, H, cam, aFloat, head, tlMs, curIdx, arrivals,
-                     withHud, finalHud, geo) {
-    const [c, zf] = cam;
-    ctx.fillStyle = F().bg;
-    ctx.fillRect(0, 0, W, H);
-
+  // Что камера видит в кадре W×H: целый зум тайлов, растяжение до дробного
+  // и мировые координаты левого верхнего угла.
+  //
+  // Кадр не должен выходить за край карты, иначе в общем плане остаются
+  // пустые полосы. По долготе карта повторяется, как в Leaflet, — это
+  // решают вызывающие, заворачивая номер тайла. По широте повтора нет:
+  // Меркатор обрывается на 85°. Поэтому камера не отдаляется дальше, чем
+  // карта мира по высоте равна кадру, и не поднимается центром так, чтобы
+  // край кадра вылез за полюс. На вертикальном видео это случалось в общем
+  // плане любой истории шире одной страны.
+  function frameView(cam, W, H) {
+    const [c, zCam] = cam;
+    const zf = Math.max(zCam, Math.log2(H / 256));
     const z = Math.round(zf);
     const scale = Math.pow(2, zf - z);
     const [cx, cy] = project(c.lat, c.lng, z);
-    const originX = cx * scale - W / 2, originY = cy * scale - H / 2;
-    const ts = 256 * scale;
+    const worldH = 256 * Math.pow(2, zf);
+    return {
+      z, scale, n: Math.pow(2, z), ts: 256 * scale,
+      originX: cx * scale - W / 2,
+      originY: Math.min(Math.max(cy * scale - H / 2, 0), worldH - H)
+    };
+  }
+
+  const wrapX = (x, n) => ((x % n) + n) % n;
+
+  function drawFrame(ctx, W, H, cam, aFloat, head, tlMs, curIdx, arrivals,
+                     withHud, finalHud, geo) {
+    ctx.fillStyle = F().bg;
+    ctx.fillRect(0, 0, W, H);
+
+    const { z, scale, n, ts, originX, originY } = frameView(cam, W, H);
     const x0 = Math.floor(originX / ts), x1 = Math.floor((originX + W) / ts);
-    const y0 = Math.floor(originY / ts), y1 = Math.floor((originY + H) / ts);
+    const y0 = Math.max(0, Math.floor(originY / ts));
+    const y1 = Math.min(n - 1, Math.floor((originY + H) / ts));
     ctx.imageSmoothingEnabled = true;
 
     for (let x = x0; x <= x1; x++)
       for (let y = y0; y <= y1; y++) {
-        let img = tileCache.get(z + '/' + x + '/' + y);
+        const xw = wrapX(x, n);
+        let img = tileCache.get(z + '/' + xw + '/' + y);
         if (img) {
           ctx.drawImage(img, x * ts - originX, y * ts - originY, ts + 0.6, ts + 0.6);
           continue;
@@ -583,12 +606,12 @@ const WBPlayer = (() => {
         // Поднимаемся на несколько уровней: фоновая догрузка может отставать,
         // и одного уровня вверх не всегда хватает.
         for (let up = 1; up <= 4; up++) {
-          const pz = z - up, px = x >> up, py = y >> up;
+          const pz = z - up, px = xw >> up, py = y >> up;
           if (pz < 0) break;
           img = tileCache.get(pz + '/' + px + '/' + py);
           if (!img) continue;
           const part = 256 >> up;                       // какая доля тайла нужна
-          ctx.drawImage(img, (x - (px << up)) * part, (y - (py << up)) * part,
+          ctx.drawImage(img, (xw - (px << up)) * part, (y - (py << up)) * part,
                         part, part,
                         x * ts - originX, y * ts - originY, ts + 0.6, ts + 0.6);
           break;
@@ -598,7 +621,7 @@ const WBPlayer = (() => {
     // Подписи городов и стран — поверх тайлов, но под следом: карта остаётся
     // фоном. Координаты берём мировые, из тайлов, поэтому текст не режется
     // на стыках и не двоится.
-    drawPlaceLabels(ctx, W, H, z, scale, originX, originY, x0, x1, y0, y1);
+    drawPlaceLabels(ctx, W, H, z, n, scale, originX, originY, x0, x1, y0, y1);
 
     const toScreen = ll => {
       const [px, py] = project(ll.lat, ll.lng, z);
@@ -721,13 +744,18 @@ const WBPlayer = (() => {
   // Подписи населённых пунктов из тайлов. Крупные важнее мелких, поэтому
   // сортируем по значимости и выкидываем то, что налезает на уже
   // поставленное: иначе на общем плане получается каша из имён.
-  function drawPlaceLabels(ctx, W, H, z, scale, originX, originY, x0, x1, y0, y1) {
+  function drawPlaceLabels(ctx, W, H, z, n, scale, originX, originY, x0, x1, y0, y1) {
     const k = Math.min(W, H) / 720;
     const found = [];
     for (let x = x0; x <= x1; x++)
       for (let y = y0; y <= y1; y++) {
-        const t = tileCache.get(z + '/' + x + '/' + y);
-        if (t && t.labels) found.push(...t.labels);
+        const xw = wrapX(x, n);
+        const t = tileCache.get(z + '/' + xw + '/' + y);
+        if (!t || !t.labels) continue;
+        // Повтор карты за 180-м меридианом: подписи сдвигаются вместе с тайлом
+        const shift = (x - xw) * 256;
+        if (shift) for (const l of t.labels) found.push({ ...l, wx: l.wx + shift });
+        else found.push(...t.labels);
       }
     if (!found.length) return;
     found.sort((a, b) => a.rank - b.rank);
