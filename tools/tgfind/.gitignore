@@ -1,0 +1,10 @@
+# Вход в аккаунт Telegram и ключи API — не публиковать никогда
+*.session
+*.session-journal
+config.json
+
+# Результаты и прогресс — личные рабочие файлы
+state.json
+state.tmp
+results.csv
+links.txt
